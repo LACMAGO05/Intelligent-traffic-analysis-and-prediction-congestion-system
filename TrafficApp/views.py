@@ -63,13 +63,18 @@ def signup_view(request):
             'otp':      otp
             
         }
-        send_mail(
-            "Please verify your email address",
-            f"Hi {username}, We received your request for a single-use code to finish your Traffik account creation.\n\nPlease use the 6-digit code below to verify your email address for Traffik.\n\n Your verification code: {otp}\n\nThanks,\nThe Traffik account team",
-            "rebeccalacmago@gmail.com",
-            [email],
-            fail_silently=False,
-        )
+        try:
+            send_mail(
+                "Please verify your email address",
+                f"Hi {username}, We received your request for a single-use code to finish your Traffik account creation.\n\nPlease use the 6-digit code below to verify your email address for Traffik.\n\n Your verification code: {otp}\n\nThanks,\nThe Traffik account team",
+                settings.EMAIL_HOST_USER,
+                [email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            messages.error(request, f"Failed to send verification email: {str(e)}")
+            return redirect("signup")
         return redirect("otp")
     return render(request, "sign_up.html")
 
