@@ -5,12 +5,14 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.mail import send_mail
-from .utils import generate_otp, get_realtime_traffic
+from .utils import generate_otp, get_realtime_traffic, find_best_departure_time
+from .models import ChatMessage, ChatThread
 from django.http import JsonResponse
 from django_ratelimit.decorators import ratelimit
 from django.contrib.auth.hashers import make_password
 from django.conf import settings
 import traceback   #lets us print the real error to terminal
+from django.utils import timezone
 import datetime
 
 from supabase import create_client
@@ -29,7 +31,7 @@ def signin_view(request):
         user = authenticate(request, username=username, password=password)
         if user is not None:
             login(request, user)
-            return redirect("dashboard")
+            return redirect("predict")
         else:
             messages.error(request, "Invalid username or password")
             return redirect("signin")
@@ -57,7 +59,7 @@ def signup_view(request):
         request.session['signup_data'] = {
             'username': username,
             'email':    email,
-            'password': make_password(password),
+            'password': password,
             'otp':      otp
             
         }
@@ -79,12 +81,12 @@ def verify_otp(request):
         if not data:
             return redirect("signup")
         if entered_otp == data['otp']:
-            user = User.objects.create(
+            user = User.objects.create_user(
                 username=data['username'],
                 email=data['email'],
                 password=data['password']
             )
-            commuter_group = Group.objects.get(name='Commuter')
+            commuter_group, _ = Group.objects.get_or_create(name='Commuter')
             user.groups.add(commuter_group)
             user.save()
             messages.success(request, "Account created successfully")
@@ -98,7 +100,7 @@ def dashboard_view(request):
     # For Master's project feel: provide some simplified forecast data without using ML model
     # We'll use a static forecast or a single API call for a representative route
     # to avoid excessive API usage on every page load.
-    now = datetime.datetime.now()
+    now = timezone.now()
     forecast = [
         {"time": f"{(now.hour + 1) % 24}:00", "label": "Low", "color": "green"},
         {"time": f"{(now.hour + 2) % 24}:00", "label": "Medium", "color": "yellow"},
@@ -137,7 +139,7 @@ def get_gridlock_alerts(request):
                     "route": data["route"],
                     "congestion": "High",
                     "travel_time": data["travel_time"],
-                    "timestamp": datetime.datetime.now().strftime("%H:%M")
+                    "timestamp": timezone.now().strftime("%H:%M")
                 })
         return JsonResponse({"alerts": alerts})
     except Exception as e:
@@ -174,7 +176,7 @@ def predict_view(request):
             if not origin or not destination:
                 return JsonResponse({"error": "Please provide both origin and destination."}, status=400)
 
-            now = datetime.datetime.now()
+            now = timezone.now()
             departure_time = "now"
 
             if pred_day != "now" or pred_time:
@@ -209,6 +211,12 @@ def predict_view(request):
             if traffic_data.get("is_prediction"):
                 traffic_data["confidence"] = 100 # Google Maps data is highly reliable
 
+            # If congestion is medium or high, suggest a better time if it's a 'now' request
+            if departure_time == "now" and traffic_data.get("congestion") in ["Medium", "High"]:
+                recommendation = find_best_departure_time(origin, destination)
+                if recommendation:
+                    traffic_data["recommended_departure"] = recommendation
+
             # ── Save all results to CSV ──────────────────────────────
             if pd:
                 csv_file = os.path.join(settings.BASE_DIR, "google_traffic_data.csv")
@@ -226,7 +234,33 @@ def predict_view(request):
                 file_exists = os.path.isfile(csv_file)
                 df.to_csv(csv_file, mode='a', header=not file_exists, index=False)
 
-            return JsonResponse(traffic_data)
+            # Save to Chat History
+            thread_id = request.POST.get("thread_id")
+            thread = None
+            if thread_id:
+                try:
+                    thread = ChatThread.objects.get(id=thread_id, user=request.user)
+                except (ChatThread.DoesNotExist, ValueError):
+                    pass
+            
+            if not thread:
+                thread = ChatThread.objects.create(
+                    user=request.user,
+                    title=f"{origin} to {destination}"
+                )
+
+            ChatMessage.objects.create(
+                thread=thread,
+                user=request.user,
+                message=f"From {origin} to {destination}",
+                response=traffic_data
+            )
+
+            response_data = traffic_data.copy()
+            response_data["thread_id"] = str(thread.id)
+            response_data["thread_title"] = thread.title
+
+            return JsonResponse(response_data)
 
         except Exception as e:
             traceback.print_exc()
@@ -237,6 +271,43 @@ def predict_view(request):
         'google_maps_api_key': settings.GOOGLE_CLIENT_SECRET
     })
 
+@login_required
+def chat_history_view(request):
+    """
+    Returns the chat history (threads) for the logged-in user.
+    """
+    threads = ChatThread.objects.filter(user=request.user).order_by('-created_at')
+    history = []
+    for thread in threads:
+        history.append({
+            "id": str(thread.id),
+            "title": thread.title,
+            "timestamp": thread.created_at.strftime("%Y-%m-%d %H:%M")
+        })
+    return JsonResponse({"history": history})
+
+@login_required
+def thread_detail_view(request, thread_id):
+    """
+    Returns messages for a specific thread.
+    """
+    try:
+        thread = ChatThread.objects.get(id=thread_id, user=request.user)
+        messages = thread.messages.all().order_by('timestamp')
+        history = []
+        for msg in messages:
+            history.append({
+                "message": msg.message,
+                "response": msg.response,
+                "timestamp": msg.timestamp.strftime("%Y-%m-%d %H:%M")
+            })
+        return JsonResponse({
+            "thread_id": str(thread.id),
+            "title": thread.title,
+            "messages": history
+        })
+    except (ChatThread.DoesNotExist, ValueError):
+        return JsonResponse({"error": "Thread not found"}, status=404)
 
 # Analytics — Admin and Analyst only
 @role_required('Admin', 'Analyst')

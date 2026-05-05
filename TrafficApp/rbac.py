@@ -16,7 +16,7 @@
 from django.contrib.auth.models import Group, Permission
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from functools import wraps
  
   
@@ -69,7 +69,9 @@ def role_required(*roles):
                     {"error": "You do not have permission to do this."},
                     status=403
                 )
-            return redirect('dashboard')  # or render a 403 page
+            
+            # Prevent infinite redirect loop if 'predict' is protected
+            return render(request, '403.html', status=403)
  
         return wrapper
     return decorator

@@ -1,3 +1,5 @@
+let currentThreadId = null;
+
 async function predictTraffic() {
     let origin = document.getElementById("origin").value;
     let destination = document.getElementById("destination").value;
@@ -9,10 +11,18 @@ async function predictTraffic() {
         return;
     }
 
-    let statusMsg = `Checking traffic from ${origin} to ${destination}`;
-    if (day !== "now") statusMsg += ` for ${day}`;
-    if (time) statusMsg += ` at ${time}`;
-    displayMessage(`${statusMsg}...`, "user");
+    let statusMsg = `
+        <div class="flex items-center gap-2">
+            <span class="material-symbols-outlined text-sm animate-spin">sync</span>
+            <span>Checking traffic from <span class="font-bold">${origin}</span> to <span class="font-bold">${destination}</span>${day !== "now" ? ` for <span class="font-bold">${day}</span>` : ""}${time ? ` at <span class="font-bold">${time}</span>` : ""}...</span>
+        </div>
+    `;
+    displayMessage(statusMsg, "user");
+
+    let bodyParams = { origin, destination, day, time };
+    if (currentThreadId) {
+        bodyParams.thread_id = currentThreadId;
+    }
 
     let response = await fetch("/predict/", {
         method: "POST",
@@ -20,36 +30,323 @@ async function predictTraffic() {
             "Content-Type": "application/x-www-form-urlencoded",
             "X-CSRFToken": getCookie("csrftoken")
         },
-        body: new URLSearchParams({ origin, destination, day, time })
+        body: new URLSearchParams(bodyParams)
     });
 
     let data = await response.json();
     console.log("Backend response:", data);
 
     if (data.error) {
-        displayMessage(`Error: ${data.error}`, "bot");
+        displayMessage(`
+            <div class="flex items-center gap-3 text-error">
+                <span class="material-symbols-outlined">error</span>
+                <p class="font-bold">Error: ${data.error}</p>
+            </div>
+        `, "bot");
         return;
     }
 
+    if (data.thread_id) {
+        if (!currentThreadId) {
+            currentThreadId = data.thread_id;
+            loadChatThreads(); // Refresh history list to show the new thread
+        }
+    }
+
+    let interpretation = "";
+    let suggestion = "";
+    let statusEmoji = "";
+    let headerColor = "";
+
+    if (data.congestion === 'Low') {
+        interpretation = "You're good to go! The roads are looking clear.";
+        suggestion = "It's a great time to start your journey. Drive safely!";
+        statusEmoji = "🟢";
+        headerColor = "text-green-700";
+    } else if (data.congestion === 'Medium') {
+        interpretation = "Expect some light traffic.";
+        suggestion = "It's not too bad, but maybe leave a few minutes earlier just to be safe!";
+        if (data.recommended_departure) {
+            suggestion += `<br><br><span class="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-200 mt-2">
+                <span class="material-symbols-outlined text-sm">schedule</span>
+                <b>Tip:</b> If you can, leave at <b>${data.recommended_departure.time}</b> for <b>${data.recommended_departure.congestion}</b> traffic (${data.recommended_departure.travel_time} mins).
+            </span>`;
+        }
+        statusEmoji = "🟡";
+        headerColor = "text-yellow-700";
+    } else {
+        interpretation = "Expect delays! Heavy traffic detected.";
+        suggestion = "Consider waiting a bit or taking an alternative route if possible.";
+        if (data.recommended_departure) {
+            suggestion += `<br><br><span class="inline-flex items-center gap-1.5 px-2 py-1 bg-green-50 text-green-700 rounded-lg border border-green-200 mt-2">
+                <span class="material-symbols-outlined text-sm">schedule</span>
+                <b>Tip:</b> A better time to leave is <b>${data.recommended_departure.time}</b> (${data.recommended_departure.travel_time} mins, <b>${data.recommended_departure.congestion}</b> traffic).
+            </span>`;
+        }
+        statusEmoji = "🔴";
+        headerColor = "text-red-700";
+    }
+
     let botReply = `
-🚗 **${data.is_prediction ? "Future Prediction" : "Route Analysis"} Complete**\n
+        <div class="flex flex-col gap-6 w-full font-sans text-on-surface">
+            <!-- Header Section with Badge -->
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <div class="p-2 bg-primary/10 rounded-lg">
+                        <span class="material-symbols-outlined text-primary">${data.is_prediction ? "auto_graph" : "on_device_training"}</span>
+                    </div>
+                    <div>
+                        <h3 class="font-headline font-bold text-lg leading-none">${data.is_prediction ? "Smart Forecast" : "Live Traffic Update"}</h3>
+                        <p class="text-xs text-on-surface-variant">${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} • Verified Source</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5 px-3 py-1 rounded-full ${data.congestion === 'Low' ? 'bg-green-100 text-green-700' : data.congestion === 'Medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'} border border-current/20">
+                    <span class="w-2 h-2 rounded-full bg-current animate-pulse"></span>
+                    <span class="text-xs font-bold uppercase tracking-wider">${data.congestion} Traffic</span>
+                </div>
+            </div>
 
-📍 **Route:** ${data.route}\n
-${data.is_prediction ? "" : `📏 **Distance:** ${data.distance} km\n`}
-${data.is_prediction ? "" : `🚀 **Avg Speed:** ${data.speed} km/h\n`}
-⏰ **Hour:** ${data.hour}:00\n
-🗓 **Day:** ${data.day}\n
-🚦 **Congestion:** ${data.congestion}\n
-${data.is_prediction ? `🎯 **Confidence:** ${data.confidence}%\n` : ""}
-⏳ **Estimated Travel Time:** ${data.travel_time}${data.is_prediction ? "" : " mins"}\n
+            <!-- Summary Card -->
+            <div class="bg-white rounded-3xl p-6 border border-outline-variant/30 shadow-xl shadow-primary/5">
+                <p class="text-sm text-on-surface-variant mb-6">
+                    I've analyzed the route from <span class="text-on-surface font-semibold underline decoration-primary/20">${origin}</span> to <span class="text-on-surface font-semibold underline decoration-primary/20">${destination}</span>. 
+                    ${data.is_prediction ? `Forecast for <b>${data.day}</b> at <b>${data.hour}:00</b>:` : "Current status:"}
+                </p>
 
-${data.is_prediction ? "*Based on historical AI patterns.*" : "*Data has been saved for future intelligence.*"}
-`;
+                <!-- Key Metrics Grid -->
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
+                        <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Travel Time</p>
+                        <div class="flex items-baseline gap-1">
+                            <span class="text-3xl font-black text-primary">${data.travel_time}</span>
+                            <span class="text-sm font-bold text-primary/60">mins</span>
+                        </div>
+                    </div>
+                    <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
+                        <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Distance</p>
+                        <div class="flex items-baseline gap-1">
+                            <span class="text-3xl font-black text-on-surface">${data.distance}</span>
+                            <span class="text-sm font-bold text-on-surface-variant">km</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Interpretation -->
+                <div class="flex items-start gap-4 p-4 rounded-2xl ${data.congestion === 'Low' ? 'bg-green-50' : data.congestion === 'Medium' ? 'bg-yellow-50' : 'bg-red-50'} mb-6">
+                    <span class="text-3xl">${statusEmoji}</span>
+                    <div>
+                        <p class="font-bold text-on-surface leading-tight mb-1">${interpretation}</p>
+                        <p class="text-sm text-on-surface-variant leading-relaxed">${suggestion}</p>
+                    </div>
+                </div>
+
+                <!-- Technical Details Accordion-like list -->
+                <div class="space-y-3 pt-4 border-t border-outline-variant/20">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-sm text-on-surface-variant">speed</span>
+                            <span class="text-xs font-medium text-on-surface-variant">Average Speed</span>
+                        </div>
+                        <span class="text-xs font-bold text-on-surface">${data.speed} km/h</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-sm text-on-surface-variant">history</span>
+                            <span class="text-xs font-medium text-on-surface-variant">Normal Duration</span>
+                        </div>
+                        <span class="text-xs font-bold text-on-surface">${data.normal_duration} mins</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-sm text-on-surface-variant">verified</span>
+                            <span class="text-xs font-medium text-on-surface-variant">Confidence Score</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="text-xs font-bold text-primary">High</span>
+                            <div class="flex gap-0.5">
+                                <div class="w-1 h-3 rounded-full bg-primary"></div>
+                                <div class="w-1 h-3 rounded-full bg-primary"></div>
+                                <div class="w-1 h-3 rounded-full bg-primary"></div>
+                                <div class="w-1 h-3 rounded-full bg-primary/20"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+    `;
+
+    if (data.segments_delay && data.segments_delay.length > 0) {
+        let delayMsg = `
+            <div class="mt-2 space-y-2">
+                <p class="text-xs font-bold text-error flex items-center gap-1 uppercase tracking-wider px-1">
+                    <span class="material-symbols-outlined text-sm">warning</span> Segment Specific Alerts
+                </p>
+        `;
+        data.segments_delay.forEach(seg => {
+            delayMsg += `
+                    <div class="p-4 bg-red-50 border-l-4 border-error rounded-r-xl flex items-start gap-3">
+                        <span class="material-symbols-outlined text-error text-lg mt-0.5">report_problem</span>
+                        <p class="text-xs text-on-surface leading-relaxed">
+                            A little delay of <span class="font-bold text-error">${seg.delay} minutes</span> might be encountered at <span class="font-bold underline decoration-error/30">${seg.point}</span>.
+                        </p>
+                    </div>
+            `;
+        });
+        delayMsg += `</div>`;
+        botReply += delayMsg;
+    }
+
+    botReply += `</div>`;
 
     displayMessage(botReply, "bot");
 }
 
+async function loadChatThreads() {
+    try {
+        const response = await fetch("/chat-history/");
+        const data = await response.json();
+        const historyList = document.getElementById("history-list");
 
+        if (data.history && data.history.length > 0) {
+            historyList.innerHTML = data.history.map(thread => `
+                <div onclick="loadThread('${thread.id}')" 
+                     class="group flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition-all hover:bg-slate-200 dark:hover:bg-slate-800 ${currentThreadId === thread.id ? 'bg-slate-200 dark:bg-slate-800' : ''}">
+                    <span class="material-symbols-outlined text-lg text-slate-400 group-hover:text-primary transition-colors">chat_bubble</span>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">${thread.title}</p>
+                        <p class="text-[10px] text-slate-400">${thread.timestamp}</p>
+                    </div>
+                </div>
+            `).join("");
+        } else {
+            historyList.innerHTML = `<p class="px-4 py-2 text-[10px] text-slate-500 italic">No history yet</p>`;
+        }
+    } catch (err) {
+        console.error("Error loading chat threads:", err);
+    }
+}
+
+async function loadThread(threadId) {
+    currentThreadId = threadId;
+    document.getElementById("chatbox").innerHTML = "";
+    
+    // Update active state in sidebar
+    loadChatThreads();
+
+    try {
+        const response = await fetch(`/chat-history/${threadId}/`);
+        const data = await response.json();
+
+        if (data.messages) {
+            data.messages.forEach(item => {
+                displayMessage(item.message, "user");
+                let botReply = constructBotReply(item.response, item.timestamp);
+                displayMessage(botReply, "bot");
+            });
+        }
+    } catch (err) {
+        console.error("Error loading thread:", err);
+    }
+}
+
+function startNewAnalysis() {
+    currentThreadId = null;
+    document.getElementById("chatbox").innerHTML = "";
+    document.getElementById("origin").value = "";
+    document.getElementById("destination").value = "";
+    document.getElementById("pred_time").value = "";
+    document.getElementById("pred_day").value = "now";
+    
+    // Update sidebar UI
+    loadChatThreads();
+    
+    displayMessage("New analysis started. Where would you like to go?", "bot");
+}
+
+function constructBotReply(trafficData, timestamp) {
+    let interpretation = "";
+    let suggestion = "";
+    let statusEmoji = "";
+    
+    if (trafficData.congestion === 'Low') {
+        interpretation = "You're good to go! The roads are looking clear.";
+        suggestion = "It's a great time to start your journey. Drive safely!";
+        statusEmoji = "🟢";
+    } else if (trafficData.congestion === 'Medium') {
+        interpretation = "Expect some light traffic.";
+        suggestion = "It's not too bad, but maybe leave a few minutes earlier just to be safe!";
+        if (trafficData.recommended_departure) {
+            suggestion += `<br><br><span class="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 text-blue-700 rounded-lg border border-blue-200 mt-2">
+                <span class="material-symbols-outlined text-sm">schedule</span>
+                <b>Tip:</b> If you can, leave at <b>${trafficData.recommended_departure.time}</b> for <b>${trafficData.recommended_departure.congestion}</b> traffic (${trafficData.recommended_departure.travel_time} mins).
+            </span>`;
+        }
+        statusEmoji = "🟡";
+    } else {
+        interpretation = "Expect delays! Heavy traffic detected.";
+        suggestion = "Consider waiting a bit or taking an alternative route if possible.";
+        if (trafficData.recommended_departure) {
+            suggestion += `<br><br><span class="inline-flex items-center gap-1.5 px-2 py-1 bg-green-50 text-green-700 rounded-lg border border-green-200 mt-2">
+                <span class="material-symbols-outlined text-sm">schedule</span>
+                <b>Tip:</b> A better time to leave is <b>${trafficData.recommended_departure.time}</b> (${trafficData.recommended_departure.travel_time} mins, <b>${trafficData.recommended_departure.congestion}</b> traffic).
+            </span>`;
+        }
+        statusEmoji = "🔴";
+    }
+
+    let botReply = `
+        <div class="flex flex-col gap-6 w-full font-sans text-on-surface">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <div class="p-2 bg-primary/10 rounded-lg">
+                        <span class="material-symbols-outlined text-primary">${trafficData.is_prediction ? "auto_graph" : "on_device_training"}</span>
+                    </div>
+                    <div>
+                        <h3 class="font-headline font-bold text-lg leading-none">${trafficData.is_prediction ? "Smart Forecast" : "Live Traffic Update"}</h3>
+                        <p class="text-xs text-on-surface-variant">${timestamp || 'Verified Source'}</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-1.5 px-3 py-1 rounded-full ${trafficData.congestion === 'Low' ? 'bg-green-100 text-green-700' : trafficData.congestion === 'Medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'} border border-current/20">
+                    <span class="w-2 h-2 rounded-full bg-current"></span>
+                    <span class="text-xs font-bold uppercase tracking-wider">${trafficData.congestion} Traffic</span>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-3xl p-6 border border-outline-variant/30 shadow-xl shadow-primary/5">
+                <p class="text-sm text-on-surface-variant mb-6">
+                    I analyzed the route from <span class="text-on-surface font-semibold underline decoration-primary/20">${trafficData.route.split('-')[0]}</span> to <span class="text-on-surface font-semibold underline decoration-primary/20">${trafficData.route.split('-')[1]}</span>.
+                    ${trafficData.is_prediction ? `Forecast for <b>${trafficData.day}</b> at <b>${trafficData.hour}:00</b>:` : "Status at that time:"}
+                </p>
+
+                <div class="grid grid-cols-2 gap-4 mb-6">
+                    <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
+                        <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Travel Time</p>
+                        <div class="flex items-baseline gap-1">
+                            <span class="text-3xl font-black text-primary">${trafficData.travel_time}</span>
+                            <span class="text-sm font-bold text-primary/60">mins</span>
+                        </div>
+                    </div>
+                    <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
+                        <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Distance</p>
+                        <div class="flex items-baseline gap-1">
+                            <span class="text-3xl font-black text-on-surface">${trafficData.distance}</span>
+                            <span class="text-sm font-bold text-on-surface-variant">km</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex items-start gap-4 p-4 rounded-2xl ${trafficData.congestion === 'Low' ? 'bg-green-50' : trafficData.congestion === 'Medium' ? 'bg-yellow-50' : 'bg-red-50'}">
+                    <span class="text-3xl">${statusEmoji}</span>
+                    <div>
+                        <p class="font-bold text-on-surface leading-tight mb-1">${interpretation}</p>
+                        <p class="text-sm text-on-surface-variant leading-relaxed">${suggestion}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    return botReply;
+}
 
 
 function getCookie(name) {
@@ -74,15 +371,15 @@ function displayMessage(msg, sender) {
 
     if (sender === "user") {
         bubble = `
-        <div class="flex justify-end">
-            <div class="bg-gray-200 p-4 rounded-xl max-w-[70%]">
-                ${msg}
+        <div class="flex justify-end animate-fade-in animate-slide-in-from-right">
+            <div class="bg-primary-container text-on-primary-container p-4 rounded-2xl rounded-tr-none shadow-sm max-w-[85%] md:max-w-[70%]">
+                <p class="text-sm font-medium">${msg}</p>
             </div>
         </div>`;
     } else {
         bubble = `
-        <div class="flex justify-start">
-            <div class="bg-blue-600 text-white p-4 rounded-xl max-w-[70%]">
+        <div class="flex justify-start animate-fade-in animate-slide-in-from-left">
+            <div class="bg-white border border-outline-variant/20 p-5 rounded-2xl rounded-tl-none shadow-md w-full max-w-[95%] md:max-w-[85%] text-on-surface">
                 ${msg}
             </div>
         </div>`;
@@ -189,12 +486,11 @@ async function sendAudioToDjango(audioBlob) {
         }
  
         // Put the transcribed text into the chat input
-        const input = document.getElementById("message");
-        input.value = data.text;
- 
-        // Automatically send it as a message
-        displayMessage(`You said: "${data.text}"`, "user");
-        await sendMessage();
+        const input = document.getElementById("origin");
+        if (input) {
+            input.value = data.text;
+            displayMessage(`You said: "${data.text}"`, "user");
+        }
  
     } catch (err) {
         console.error("Audio send error:", err);
@@ -203,25 +499,24 @@ async function sendAudioToDjango(audioBlob) {
 }
 
 // View password
-
 const passwordInput = document.getElementById("password");
 const togglePassword = document.getElementById("togglePassword");
-const icon = togglePassword.querySelector("span");
 
-togglePassword.addEventListener("click", () => {
-    const isPassword = passwordInput.type === "password";
-
-    // Toggle input type
-    passwordInput.type = isPassword ? "text" : "password";
-
-    // Toggle icon text (Material Icons)
-    icon.textContent = isPassword ? "visibility_off" : "visibility";
-
-    // Optional: update data-icon attribute
-    icon.setAttribute("data-icon", isPassword ? "visibility_off" : "visibility");
-});
+if (passwordInput && togglePassword) {
+    const icon = togglePassword.querySelector("span");
+    togglePassword.addEventListener("click", () => {
+        const isPassword = passwordInput.type === "password";
+        passwordInput.type = isPassword ? "text" : "password";
+        icon.textContent = isPassword ? "visibility_off" : "visibility";
+        icon.setAttribute("data-icon", isPassword ? "visibility_off" : "visibility");
+    });
+}
 
 function initAutocomplete() {
+    if (typeof google === 'undefined' || !google.maps || !google.maps.places) {
+        console.error("Google Maps API not loaded");
+        return;
+    }
     // Bias results towards Buea, Cameroon
     const buea = new google.maps.LatLng(4.1522, 9.2314);
     const options = {
@@ -245,15 +540,22 @@ function initAutocomplete() {
     }
 }
 
-    // Run the initialization
-google.maps.event.addDomListener(window, 'load', initAutocomplete);
+// Run the initialization
+if (typeof google !== 'undefined' && google.maps && google.maps.event) {
+    google.maps.event.addDomListener(window, 'load', initAutocomplete);
+} else {
+    // If API script is not yet loaded, it will be handled by the callback in the URL
+    window.addEventListener('load', initAutocomplete);
+}
 
 // ── Alerts System ──────────────────────────────────────────
 async function fetchAlerts() {
     try {
+        const alertsList = document.getElementById("alerts-list");
+        if (!alertsList) return;
+
         const response = await fetch("/alerts/");
         const data = await response.json();
-        const alertsList = document.getElementById("alerts-list");
 
         if (data.alerts && data.alerts.length > 0) {
             alertsList.innerHTML = data.alerts.map(alert => `
@@ -275,3 +577,57 @@ async function fetchAlerts() {
 setInterval(fetchAlerts, 120000);
 // Initial fetch
 fetchAlerts();
+loadChatThreads();
+
+// Sidebar Collapse and Mobile Menu Logic
+document.addEventListener('DOMContentLoaded', () => {
+    const sidebar = document.getElementById('sidebar');
+    const mainContent = document.getElementById('main-content');
+    const toggleBtn = document.getElementById('sidebar-toggle');
+    const toggleIcon = document.getElementById('toggle-icon');
+    const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+
+    // Desktop toggle (Collapse)
+    if (toggleBtn && sidebar && mainContent) {
+        toggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            sidebar.classList.toggle('collapsed');
+            mainContent.classList.toggle('sidebar-collapsed');
+            
+            // Update icon
+            if (sidebar.classList.contains('collapsed')) {
+                toggleIcon.textContent = 'chevron_right';
+            } else {
+                toggleIcon.textContent = 'chevron_left';
+            }
+        });
+    }
+
+    // Mobile toggle (Open/Close drawer)
+    if (mobileMenuToggle && sidebar) {
+        mobileMenuToggle.addEventListener('click', (e) => {
+            e.preventDefault();
+            sidebar.classList.toggle('open');
+            
+            // Change icon if needed
+            const icon = mobileMenuToggle.querySelector('span');
+            if (sidebar.classList.contains('open')) {
+                icon.textContent = 'close';
+            } else {
+                icon.textContent = 'menu';
+            }
+        });
+    }
+
+    // Close sidebar when clicking outside on mobile
+    document.addEventListener('click', (e) => {
+        if (window.innerWidth < 1024) {
+            if (sidebar.classList.contains('open') && 
+                !sidebar.contains(e.target) && 
+                !mobileMenuToggle.contains(e.target)) {
+                sidebar.classList.remove('open');
+                mobileMenuToggle.querySelector('span').textContent = 'menu';
+            }
+        }
+    });
+});

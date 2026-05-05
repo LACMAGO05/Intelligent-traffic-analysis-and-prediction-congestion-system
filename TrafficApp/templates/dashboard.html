@@ -7,7 +7,6 @@
     <meta content="width=device-width, initial-scale=1.0" name="viewport" />
     <title>Traffik - Chatbot Dashboard</title>
     <!-- Material Symbols -->
-     "X-CSRFToken": getCookie("csrftoken")
     <link
     href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
     rel="stylesheet"
@@ -27,12 +26,32 @@
     
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries,typography,aspect-ratio"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" rel="stylesheet"/>
     <script id="tailwind-config">
       tailwind.config = {
         darkMode: "class",
         theme: {
           extend: {
+            animation: {
+              'fade-in': 'fadeIn 0.5s ease-out',
+              'slide-in-from-left': 'slideInFromLeft 0.5s ease-out',
+              'slide-in-from-right': 'slideInFromRight 0.5s ease-out',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              slideInFromLeft: {
+                '0%': { transform: 'translateX(-1rem)', opacity: '0' },
+                '100%': { transform: 'translateX(0)', opacity: '1' },
+              },
+              slideInFromRight: {
+                '0%': { transform: 'translateX(1rem)', opacity: '0' },
+                '100%': { transform: 'translateX(0)', opacity: '1' },
+              },
+            },
             colors: {
               surface: "#f7f9fc",
               "on-primary-fixed-variant": "#343d96",
@@ -108,7 +127,7 @@
       body {
         background-color: #f7f9fc;
         color: #191c1e;
-        overflow: hidden;
+        overflow-x: hidden;
       }
       .custom-scrollbar::-webkit-scrollbar {
         width: 4px;
@@ -120,6 +139,78 @@
         background: #e0e3e6;
         border-radius: 10px;
       }
+      
+      /* Sidebar and Layout Styles */
+      #sidebar {
+        transition: transform 0.3s ease, width 0.3s ease;
+      }
+      #sidebar.collapsed {
+        width: 80px;
+      }
+      #sidebar.collapsed .sidebar-text,
+      #sidebar.collapsed .sidebar-header-full,
+      #sidebar.collapsed .badge {
+        display: none;
+      }
+      #sidebar.collapsed .sidebar-header-collapsed {
+        display: flex;
+      }
+      #sidebar.collapsed .sidebar-nav-item {
+        justify-content: center;
+        padding-left: 0;
+        padding-right: 0;
+      }
+      #sidebar.collapsed .sidebar-nav-item span:not(.material-symbols-outlined) {
+        display: none;
+      }
+      #main-content {
+        transition: margin-left 0.3s ease;
+      }
+      #main-content.sidebar-collapsed {
+        margin-left: 80px;
+      }
+      .sidebar-header-collapsed {
+        display: none;
+      }
+      
+      /* Mobile Sidebar Styles */
+      @media (max-width: 1023px) {
+        #sidebar {
+          transform: translateX(-100%);
+          width: 280px !important;
+        }
+        #sidebar.open {
+          transform: translateX(0);
+          box-shadow: 0 0 50px rgba(0,0,0,0.2);
+        }
+        #main-content {
+          margin-left: 0 !important;
+        }
+        #sidebar .sidebar-text,
+        #sidebar .sidebar-header-full,
+        #sidebar .badge {
+          display: flex !important;
+        }
+        #sidebar .sidebar-header-collapsed {
+          display: none !important;
+        }
+        #sidebar-toggle {
+          display: none;
+        }
+      }
+
+      /* Responsive Grid for Cards */
+      .responsive-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem;
+      }
+
+      /* Custom Scrollbar for Chat */
+      #chatbox {
+        scrollbar-width: thin;
+        scrollbar-color: #e0e3e6 transparent;
+      }
     </style>
   </head>
   <body
@@ -130,15 +221,18 @@
       class="bg-slate-50/70 dark:bg-slate-950/70 backdrop-blur-xl docked full-width top-0 z-50 shadow-[0_8px_24px_rgba(25,28,30,0.06)] fixed w-full"
     >
       <div
-        class="flex justify-between items-center w-full px-8 py-4 max-w-[1440px] mx-auto"
+        class="flex justify-between items-center w-full px-4 md:px-8 py-4 max-w-[1440px] mx-auto"
       >
         <div class="flex items-center gap-4">
+          <button id="mobile-menu-toggle" class="lg:hidden p-2 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg">
+            <span class="material-symbols-outlined">menu</span>
+          </button>
           <span
             class="text-xl font-bold tracking-tighter text-[#1A237E] dark:text-[#8690ee] font-headline"
             >Traffik</span
           >
         </div>
-        <nav class="hidden md:flex gap-8 items-center">
+        <nav class="hidden md:flex gap-6 lg:gap-8 items-center">
           <a
             class="font-['Manrope'] font-semibold tracking-tight text-[#1A237E] dark:text-white border-b-2 border-[#1A237E] dark:border-[#8690ee] pb-1 hover:text-[#1A237E] dark:hover:text-white transition-colors"
             href="#"
@@ -146,7 +240,7 @@
           >
           <a
             class="font-['Manrope'] font-semibold tracking-tight text-slate-500 dark:text-slate-400 font-medium hover:text-[#1A237E] dark:hover:text-white transition-colors"
-            href="#"
+            href="{url 'chat_history'}"
             >History</a
           >
           <a
@@ -155,22 +249,17 @@
             >Settings</a
           >
         </nav>
-        <div class="flex items-center gap-4">
-          <p>Welcome {{user.username}}</p>
+        <div class="flex items-center gap-2 md:gap-4">
+          <p class="hidden sm:block text-sm">Welcome {{user.username}}</p>
           <img
             alt="User Profile"
-            class="w-10 h-10 rounded-full object-cover ring-2 ring-surface-container-high"
+            class="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover ring-2 ring-surface-container-high"
             data-alt="Close-up portrait of a professional man in a modern office environment with soft natural lighting"
             src="https://lh3.googleusercontent.com/aida-public/AB6AXuAuMa4enuKMnO3NObPYVhtxcvc-Cx7ryD-rHdj5Z35m5NlUsFn9l3deVWq1M3IezpRBEsILffsRiRwsqknxMCJbM5MnoJatWHRFL4Gluz1JddDpYTVD8kMF2kWD79BYQgtpYH1HOYKnUROw9GmvbehBAJYUOhN6f5JF0EabXMpliyIHQGzUJG2LjN_xAuLvM_E68-y0hdhLIflVIJJ1XK4z2Y6A6dTFYUIf1tvTZTYXmp02HwqABotPPZpFyza11s5HaljIrXdfn84"
           />
-          <!-- <div
-            class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface-container-low"
-          > -->
-            <a class="inline-flex items-center gap-2 px-6 py-2 rounded-full bg-surface-container-high text-surface-tint font-bold text-sm hover:bg-surface-container-highest transition-all active:scale-95" href="{% url 'logout' %}">
-              <!-- <span class="material-symbols-outlined text-sm font-semibold font-label" data-icon="account_circle">account circle</span> -->
-                        Logout
-                    </a>
-          <!-- </div> -->
+          <a class="inline-flex items-center gap-2 px-3 md:px-6 py-1.5 md:py-2 rounded-full bg-surface-container-high text-surface-tint font-bold text-xs md:text-sm hover:bg-surface-container-highest transition-all active:scale-95" href="{% url 'logout' %}">
+            Logout
+          </a>
         </div>
       </div>
     </header>
@@ -178,10 +267,19 @@
     <div class="flex h-screen pt-16">
       <!-- SideNavBar -->
       <aside
-        class="bg-slate-50 dark:bg-slate-950 h-screen w-64 fixed left-0 top-0 pt-20 bg-slate-100 dark:bg-slate-900 z-40 hidden lg:block"
+        id="sidebar"
+        class="bg-slate-50 dark:bg-slate-950 h-screen w-64 fixed left-0 top-0 pt-20 bg-slate-100 dark:bg-slate-900 z-40 transition-transform lg:translate-x-0"
       >
-        <div class="flex flex-col h-full overflow-y-auto pb-10">
-          <div class="px-6 mb-8 flex flex-col items-center text-center">
+        <div class="flex flex-col h-full overflow-y-auto pb-10 relative">
+          <!-- Collapse Toggle Button -->
+          <button 
+            id="sidebar-toggle"
+            class="absolute top-2 -right-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full p-1 shadow-md z-50 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+          >
+            <span class="material-symbols-outlined text-sm" id="toggle-icon">chevron_left</span>
+          </button>
+
+          <div class="px-6 mb-8 flex flex-col items-center text-center sidebar-header-full">
             <div
               class="w-16 h-16 rounded-2xl bg-primary-container flex items-center justify-center mb-3"
             >
@@ -198,74 +296,92 @@
             </h3>
             <p class="font-['Inter'] text-sm text-slate-500">Operational</p>
           </div>
+
+          <!-- Collapsed Header -->
+          <div class="sidebar-header-collapsed flex-col items-center py-4 mb-4">
+             <div class="w-10 h-10 rounded-xl bg-primary-container flex items-center justify-center">
+              <span class="material-symbols-outlined text-on-primary-container text-xl" data-icon="speed">speed</span>
+            </div>
+          </div>
+
           <nav class="flex-1 space-y-1">
             <div
-              class="bg-[#1A237E] text-white rounded-lg mx-2 my-1 px-4 py-3 flex items-center gap-3 cursor-pointer transition-transform active:scale-95"
+              class="sidebar-nav-item bg-[#1A237E] text-white rounded-lg mx-2 my-1 px-4 py-3 flex items-center gap-3 cursor-pointer transition-transform active:scale-95"
             >
             <span class="material-symbols-outlined" data-icon="speed"
                 >speed</span
               >
-              <span class="font-['Inter'] text-sm"> <a href="{% url 'dashboard' %}">Real-time Flow</a></span>
+              <span class="font-['Inter'] text-sm sidebar-text"> <a href="{% url 'predict' %}">Real-time Flow</a></span>
               
             </div>
-            <div
-              class="text-slate-600 dark:text-slate-400 mx-2 my-1 px-4 py-3 flex items-center gap-3 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all cursor-pointer active:scale-95"
-            >
-              <span class="material-symbols-outlined" data-icon="map">map</span>
-              <span class="font-['Inter'] text-sm">Predictive Map</span>
+<!--            <div-->
+<!--              class="sidebar-nav-item text-slate-600 dark:text-slate-400 mx-2 my-1 px-4 py-3 flex items-center gap-3 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all cursor-pointer active:scale-95"-->
+<!--            >-->
+<!--              <span class="material-symbols-outlined" data-icon="map">map</span>-->
+<!--              <span class="font-['Inter'] text-sm sidebar-text">Predictive Map</span>-->
+<!--            </div>-->
+            
+            <div id="chat-history-container" class="mt-4 px-2 space-y-1">
+              <h4 class="px-4 text-[10px] uppercase tracking-widest text-slate-500 font-bold mb-2 sidebar-text">History</h4>
+              <div id="history-list" class="space-y-1 max-h-64 overflow-y-auto custom-scrollbar">
+                <!-- History items will be injected here -->
+              </div>
             </div>
             <div
-              class="text-slate-600 dark:text-slate-400 mx-2 my-1 px-4 py-3 flex items-center gap-3 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all cursor-pointer active:scale-95"
+              class="sidebar-nav-item text-slate-600 dark:text-slate-400 mx-2 my-1 px-4 py-3 flex items-center gap-3 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all cursor-pointer active:scale-95"
             >
             <!-- Only Admin and Analyst see Analytics -->
             {% if user_role == 'Admin' or user_role == 'Analyst' %} 
             <span class="material-symbols-outlined" data-icon="insights"
                 >insights</span
               >
-              <span class="font-['Inter'] text-sm"><a href="{% url 'analytics' %}">Analytics</a></span>
+              <span class="font-['Inter'] text-sm sidebar-text"><a href="{% url 'analytics' %}">Analytics</a></span>
             {% endif %}
               
             </div>
           
           <!-- Show the user's current role as a badge -->
-          <span class="badge">{{ user_role }} {{user.username}}</span>
+          <span class="badge sidebar-text">{{ user_role }} {{user.username}}</span>
             
           </nav>
           <div class="px-4 mt-auto pb-4">
             <button
+              id="new-analysis-btn"
+              onclick="startNewAnalysis()"
               class="w-full bg-gradient-to-br from-primary to-primary-container text-white font-semibold py-3 rounded-lg flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-95"
             >
               <span class="material-symbols-outlined text-sm" data-icon="add"
                 >add</span
               >
-              New Analysis
+              <span class="sidebar-text">New Analysis</span>
             </button>
           </div>
         </div>
       </aside>
       <!-- Main Content (Chat Canvas) -->
       <main
-        class="flex-1 ml-0 lg:ml-64 flex flex-col relative bg-surface overflow-hidden"
+        id="main-content"
+        class="flex-1 ml-0 lg:ml-64 flex flex-col relative bg-surface overflow-hidden w-full"
       >
         <!-- Chat Header / Context Bar -->
         <div
-          class="px-8 py-6 bg-surface-container-low/50 backdrop-blur-md flex justify-between items-center z-30"
+          class="px-4 md:px-8 py-4 md:py-6 bg-surface-container-low/50 backdrop-blur-md flex flex-wrap justify-between items-center gap-4 z-30"
         >
           <div>
-            <h2 class="text-2xl font-headline font-bold text-on-surface">
+            <h2 class="text-xl md:text-2xl font-headline font-bold text-on-surface">
               Intelligence Assistant
             </h2>
-            <p class="text-sm text-on-surface-variant">
+            <p class="text-xs md:text-sm text-on-surface-variant">
               Live Traffic Synchronization Active
             </p>
           </div>
           <div class="flex gap-2">
             <div
-              class="flex items-center gap-2 bg-primary-fixed px-4 py-2 rounded-full"
+              class="flex items-center gap-2 bg-primary-fixed px-3 md:px-4 py-1.5 md:py-2 rounded-full"
             >
               <div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
               <span
-                class="text-xs font-bold font-label text-on-primary-fixed uppercase tracking-wider"
+                class="text-[10px] md:text-xs font-bold font-label text-on-primary-fixed uppercase tracking-wider"
                 >Optimal Flow</span
               >
             </div>
@@ -273,7 +389,7 @@
         </div>
         <!-- Chat Scroll Area -->
        <div id="chatbox"
-            class="flex-1 overflow-y-auto px-4 md:px-8 py-8 flex flex-col gap-4 custom-scrollbar">
+            class="flex-1 overflow-y-auto px-4 md:px-8 py-8 flex flex-col gap-6 custom-scrollbar scroll-smooth">
        </div>
 
         <!-- Input Bar & Quick Queries -->
@@ -313,14 +429,14 @@
               </button>
             </div>
             <!-- Main Input (Updated for Origin/Destination) -->
-            <div class="relative group bg-surface-container-low p-4 rounded-2xl shadow-sm border border-transparent focus-within:border-primary-container/20">
-              <div class="flex flex-col gap-4">
-                <div class="flex flex-col md:flex-row gap-4 items-center">
+            <div class="relative group bg-surface-container-low p-3 md:p-4 rounded-2xl shadow-sm border border-transparent focus-within:border-primary-container/20">
+              <div class="flex flex-col gap-3 md:gap-4">
+                <div class="flex flex-col md:flex-row gap-3 md:gap-4 items-center">
                   <div class="flex-1 w-full relative">
                     <span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant/50">location_on</span>
                     <input
                       id="origin"
-                      class="w-full bg-transparent border border-outline-variant/30 rounded-xl pl-10 pr-4 py-3 font-body text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      class="w-full bg-transparent border border-outline-variant/30 rounded-xl pl-10 pr-4 py-2.5 md:py-3 font-body text-sm md:text-base text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       placeholder="Departure point"
                       type="text"
                     />
@@ -329,17 +445,17 @@
                     <span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant/50">flag</span>
                     <input
                       id="destination"
-                      class="w-full bg-transparent border border-outline-variant/30 rounded-xl pl-10 pr-4 py-3 font-body text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      class="w-full bg-transparent border border-outline-variant/30 rounded-xl pl-10 pr-4 py-2.5 md:py-3 font-body text-sm md:text-base text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       placeholder="Where to?"
                       type="text"
                     />
                   </div>
                 </div>
 
-                <div class="flex flex-col md:flex-row gap-4 items-center">
+                <div class="flex flex-col md:flex-row gap-3 md:gap-4 items-center">
                   <div class="flex-1 w-full relative">
                     <span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant/50">calendar_today</span>
-                    <select id="pred_day" class="w-full bg-transparent border border-outline-variant/30 rounded-xl pl-10 pr-4 py-3 font-body text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary">
+                    <select id="pred_day" class="w-full bg-transparent border border-outline-variant/30 rounded-xl pl-10 pr-4 py-2.5 md:py-3 font-body text-sm md:text-base text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary">
                       <option value="now">Predict for: Now</option>
                       <option value="Monday">Monday</option>
                       <option value="Tuesday">Tuesday</option>
@@ -354,12 +470,12 @@
                     <span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant/50">schedule</span>
                     <input
                       id="pred_time"
-                      class="w-full bg-transparent border border-outline-variant/30 rounded-xl pl-10 pr-4 py-3 font-body text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      class="w-full bg-transparent border border-outline-variant/30 rounded-xl pl-10 pr-4 py-2.5 md:py-3 font-body text-sm md:text-base text-on-surface focus:ring-2 focus:ring-primary/20 focus:border-primary"
                       type="time"
                     />
                   </div>
                   <button
-                    class="bg-gradient-to-br from-primary to-primary-container text-white px-8 py-3 rounded-xl font-bold transition-transform active:scale-90 shadow-md flex items-center gap-2"
+                    class="w-full md:w-auto bg-gradient-to-br from-primary to-primary-container text-white px-8 py-3 rounded-xl font-bold transition-transform active:scale-90 shadow-md flex items-center justify-center gap-2"
                     onclick="predictTraffic()"
                   >
                     <span class="material-symbols-outlined text-sm">directions_car</span>
@@ -371,99 +487,8 @@
           </div>
         </div>
       </main>
-      <!-- Right Side Panel (Quick Intel & Status) -->
-      <aside
-        class="hidden xl:flex flex-col w-80 bg-surface-container-lowest border-l border-outline-variant/10 p-8 pt-24 gap-8"
-      >
-        <div id="alerts-panel">
-          <h4
-            class="font-headline font-bold text-sm text-on-surface-variant uppercase tracking-widest mb-4 flex items-center gap-2"
-          >
-            <span class="material-symbols-outlined text-sm text-error">notifications_active</span>
-            Gridlock Alerts
-          </h4>
-          <div id="alerts-list" class="space-y-4">
-             <p class="text-xs text-on-surface-variant italic">Checking for live alerts...</p>
-          </div>
-        </div>
-        
-        <div class="p-6 bg-surface-container-low rounded-2xl">
-          <h4 class="font-headline font-bold text-sm text-on-surface mb-2">
-            Traffic Forecast (Next 3h)
-          </h4>
-          <div class="space-y-3">
-             {% if forecast %}
-               {% for item in forecast %}
-                 <div class="flex justify-between items-center text-xs">
-                    <span class="text-on-surface-variant">{{ item.time }}</span>
-                    <span class="px-2 py-0.5 rounded-full {% if item.color == 'green' %}bg-green-100 text-green-700{% elif item.color == 'yellow' %}bg-yellow-100 text-yellow-700{% else %}bg-red-100 text-red-700{% endif %} font-bold">{{ item.label }}</span>
-                 </div>
-               {% endfor %}
-             {% else %}
-               <div class="flex justify-between items-center text-xs">
-                  <span class="text-on-surface-variant">Next Hour</span>
-                  <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 font-bold">Low</span>
-               </div>
-               <div class="flex justify-between items-center text-xs">
-                  <span class="text-on-surface-variant">Next 2 Hours</span>
-                  <span class="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-bold">Medium</span>
-               </div>
-             {% endif %}
-          </div>
-        </div>
-
-        <div class="mt-auto">
-          <div class="flex items-center gap-3 p-4 bg-primary-fixed rounded-xl">
-            <span
-              class="material-symbols-outlined text-primary"
-              data-icon="bolt"
-              style="font-variation-settings: &quot;FILL&quot; 1"
-              >bolt</span
-            >
-            <div>
-              <p class="text-xs font-bold text-on-primary-fixed">
-                Predictive Intelligence
-              </p>
-              <p class="text-[10px] text-on-primary-fixed-variant">
-                Master's Node Active
-              </p>
-            </div>
-          </div>
-        </div>
-      </aside>
     </div>
-    <!-- Footer -->
-    <footer
-      class="bg-slate-50 dark:bg-slate-950 w-full py-12 border-t border-slate-200/20 dark:border-slate-800/20 relative z-50"
-    >
-      <div
-        class="flex flex-col md:flex-row justify-between items-center px-12 max-w-7xl mx-auto"
-      >
-        <span
-          class="font-['Inter'] text-xs uppercase tracking-widest text-slate-400"
-          >© 2026 Traffik. All rights
-          reserved.</span
-        >
-        <div class="flex gap-8 mt-6 md:mt-0">
-          <a
-            class="font-['Inter'] text-xs uppercase tracking-widest text-slate-500 hover:text-[#1A237E] dark:hover:text-[#8690ee] transition-colors"
-            href="#"
-            >Privacy Policy</a
-          >
-          <a
-            class="font-['Inter'] text-xs uppercase tracking-widest text-slate-500 hover:text-[#1A237E] dark:hover:text-[#8690ee] transition-colors"
-            href="#"
-            >Terms of Service</a
-          >
-          <a
-            class="font-['Inter'] text-xs uppercase tracking-widest text-slate-500 hover:text-[#1A237E] dark:hover:text-[#8690ee] transition-colors"
-            href="#"
-            >About Traffk</a
-          >
-        </div>
-      </div>
-    </footer>
-    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initAutocomplete" async defer></script>
-    <script src="{% static 'index.js' %}"></script>
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initAutocomplete"></script>
+    <script src="{% static 'index.js' %}?v=1"></script>
   </body>
 </html>
