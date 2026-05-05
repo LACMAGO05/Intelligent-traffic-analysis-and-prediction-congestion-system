@@ -145,12 +145,7 @@ def get_gridlock_alerts(request):
     except Exception as e:
         return JsonResponse({"error": str(e)}, status=500)
 
-# PREDICT VIEW — with proper error logging
-
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
+import csv
 import os
 
 def get_next_weekday(start_date, weekday_name):
@@ -218,21 +213,23 @@ def predict_view(request):
                     traffic_data["recommended_departure"] = recommendation
 
             # ── Save all results to CSV ──────────────────────────────
-            if pd:
-                csv_file = os.path.join(settings.BASE_DIR, "google_traffic_data.csv")
-                # Flatten the data for CSV
-                save_data = {
-                    "route": traffic_data.get("route"),
-                    "distance": traffic_data.get("distance"),
-                    "hour": traffic_data.get("hour"),
-                    "day": traffic_data.get("day"),
-                    "travel_time": traffic_data.get("travel_time"),
-                    "speed": traffic_data.get("speed"),
-                    "congestion": traffic_data.get("congestion")
-                }
-                df = pd.DataFrame([save_data])
-                file_exists = os.path.isfile(csv_file)
-                df.to_csv(csv_file, mode='a', header=not file_exists, index=False)
+            csv_file = os.path.join(settings.BASE_DIR, "google_traffic_data.csv")
+            fieldnames = ["route", "distance", "hour", "day", "travel_time", "speed", "congestion"]
+            save_data = {
+                "route": traffic_data.get("route"),
+                "distance": traffic_data.get("distance"),
+                "hour": traffic_data.get("hour"),
+                "day": traffic_data.get("day"),
+                "travel_time": traffic_data.get("travel_time"),
+                "speed": traffic_data.get("speed"),
+                "congestion": traffic_data.get("congestion")
+            }
+            file_exists = os.path.isfile(csv_file)
+            with open(csv_file, mode='a', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=fieldnames)
+                if not file_exists:
+                    writer.writeheader()
+                writer.writerow(save_data)
 
             # Save to Chat History
             thread_id = request.POST.get("thread_id")

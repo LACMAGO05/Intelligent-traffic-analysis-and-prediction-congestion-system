@@ -1,6 +1,7 @@
 import requests
 import datetime
-import pandas as pd
+import csv
+import os
 import time
 from django.conf import settings
 
@@ -66,9 +67,15 @@ def collect_data():
         except Exception as e:
             print("Error:", e)
 
-    df = pd.DataFrame(all_data)
-
-    df.to_csv("google_traffic_data.csv", mode='a', header=False, index=False)
+    fieldnames = ["route", "distance", "hour", "day", "travel_time", "speed", "congestion"]
+    csv_file = "google_traffic_data.csv"
+    file_exists = os.path.isfile(csv_file)
+    
+    with open(csv_file, mode='a', newline='') as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerows(all_data)
 
 if __name__ == "__main__":
     while True:
