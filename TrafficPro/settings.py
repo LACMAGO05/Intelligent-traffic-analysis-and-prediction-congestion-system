@@ -159,3 +159,7 @@ DEBUG = os.getenv("DEBUG", "True") == "True"
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://traffik237.onrender.com"
+]
