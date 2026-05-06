@@ -24,6 +24,11 @@ supabase = create_client(
     settings.SUPABASE_KEY
 )
 
+def landing_view(request):
+    if request.user.is_authenticated:
+        return redirect("predict")
+    return render(request, "landing.html")
+
 def signin_view(request):
     if request.method == "POST":
         username = request.POST.get("username")
@@ -69,7 +74,7 @@ def signup_view(request):
                 f"Hi {username}, We received your request for a single-use code to finish your Traffik account creation.\n\nPlease use the 6-digit code below to verify your email address for Traffik.\n\n Your verification code: {otp}\n\nThanks,\nThe Traffik account team",
                 settings.EMAIL_HOST_USER,
                 [email],
-                fail_silently=False,
+                fail_silently=True,
             )
         except Exception as e:
             traceback.print_exc()
@@ -120,7 +125,7 @@ def dashboard_view(request):
 
 def logout_view(request):
     logout(request)
-    return redirect("signin")
+    return redirect("landing")
 
 @login_required
 def get_gridlock_alerts(request):
