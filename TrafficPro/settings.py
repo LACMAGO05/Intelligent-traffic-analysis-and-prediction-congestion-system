@@ -155,7 +155,7 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 
 # DEBUG = False
-DEBUG = os.getenv("DEBUG", "True") == "True"
+DEBUG = False
 
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -166,29 +166,125 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 
 # Traffic Collection Config
+# TRAFFIC_ROUTES = [
+#     ("Bonduma Gate", "Mile 17"),
+#     ("Mile 17", "Malingo"),
+#     ("Malingo", "UB Junction"),
+#     ("UB Junction", "Check Point"),
+#     ("Check Point", "Buea Town"),
+#     ("Muea", "Great Soppo"),
+#     ("Great Soppo", "Small Soppo"),
+#     ("Small Soppo", "Bongo Square"),
+#     ("Muea", "Molyko"),
+#     ("Molyko", "Bokwango"),
+#     ("Bokwango", "Buea Town"),
+#     ("Mile 16", "Mile 17"),
+#     ("Mile 17", "Bonduma"),
+#     ("Clerks Quarters", "Governor Junction"),
+#     ("Governor Junction", "Long Street"),
+#     ("Long Street", "Bongo Square"),
+#     ("UB Junction", "Bonduma"),
+#     ("Molyko", "UB Junction"),
+#     ("Check Point", "Molyko"),
+#     ("Muea", "Bonduma"),
+#     ("Buea Town", "Malingo"),
+#     ("Bongo Square", "Great Soppo"),
+#     ("Malingo", "Muea"),
+#     ("Small Soppo", "Check Point"),
+# ]
+
+# Traffic Collection Config
 TRAFFIC_ROUTES = [
+
+    # Bonduma / UB / Molyko Axis
     ("Bonduma Gate", "Mile 17"),
-    ("Mile 17", "Malingo"),
-    ("Malingo", "UB Junction"),
-    ("UB Junction", "Check Point"),
-    ("Check Point", "Buea Town"),
-    ("Muea", "Great Soppo"),
-    ("Great Soppo", "Small Soppo"),
-    ("Small Soppo", "Bongo Square"),
-    ("Muea", "Molyko"),
-    ("Molyko", "Bokwango"),
-    ("Bokwango", "Buea Town"),
+    ("Bonduma", "UB Junction"),
+    ("Bonduma", "Molyko"),
+    ("Bonduma", "Check Point"),
+    ("Bonduma", "Muea"),
+    ("Bonduma", "Great Soppo"),
+    ("Bonduma", "Buea Town"),
+
+    # Mile 16 / Mile 17 Corridors
     ("Mile 16", "Mile 17"),
-    ("Mile 17", "Bonduma"),
+    ("Mile 17", "Malingo"),
+    ("Mile 17", "UB Junction"),
+    ("Mile 17", "Check Point"),
+    ("Mile 17", "Muea"),
+    ("Mile 17", "Great Soppo"),
+
+    # Malingo Routes
+    ("Malingo", "UB Junction"),
+    ("Malingo", "Check Point"),
+    ("Malingo", "Molyko"),
+    ("Malingo", "Muea"),
+    ("Malingo", "Buea Town"),
+
+    # UB Junction Routes
+    ("UB Junction", "Molyko"),
+    ("UB Junction", "Check Point"),
+    ("UB Junction", "Great Soppo"),
+    ("UB Junction", "Buea Town"),
+    ("UB Junction", "Muea"),
+
+    # Molyko Major Traffic
+    ("Molyko", "Check Point"),
+    ("Molyko", "Great Soppo"),
+    ("Molyko", "Small Soppo"),
+    ("Molyko", "Bongo Square"),
+    ("Molyko", "Buea Town"),
+    ("Molyko", "Muea"),
+    ("Molyko", "Bokwango"),
+
+    # Check Point Connections
+    ("Check Point", "Buea Town"),
+    ("Check Point", "Great Soppo"),
+    ("Check Point", "Small Soppo"),
+    ("Check Point", "Bongo Square"),
+    ("Check Point", "Muea"),
+
+    # Great Soppo Traffic
+    ("Great Soppo", "Small Soppo"),
+    ("Great Soppo", "Bongo Square"),
+    ("Great Soppo", "Buea Town"),
+    ("Great Soppo", "Muea"),
+
+    # Small Soppo Routes
+    ("Small Soppo", "Bongo Square"),
+    ("Small Soppo", "Buea Town"),
+    ("Small Soppo", "Muea"),
+
+    # Bongo Square Routes
+    ("Bongo Square", "Buea Town"),
+    ("Bongo Square", "Muea"),
+
+    # Bokwango Routes
+    ("Bokwango", "Molyko"),
+    ("Bokwango", "Check Point"),
+    ("Bokwango", "Buea Town"),
+    ("Bokwango", "Great Soppo"),
+
+    # Muea Heavy Traffic Axis
+    ("Muea", "Great Soppo"),
+    ("Muea", "Molyko"),
+    ("Muea", "Check Point"),
+    ("Muea", "Buea Town"),
+    ("Muea", "Bonduma"),
+    ("Muea", "Malingo"),
+
+    # Clerks Quarters / Government Area
     ("Clerks Quarters", "Governor Junction"),
     ("Governor Junction", "Long Street"),
     ("Long Street", "Bongo Square"),
-    ("UB Junction", "Bonduma"),
+    ("Governor Junction", "Buea Town"),
+
+    # Additional Strategic Routes
     ("Molyko", "UB Junction"),
+    ("UB Junction", "Bonduma"),
     ("Check Point", "Molyko"),
-    ("Muea", "Bonduma"),
+    ("Great Soppo", "Check Point"),
+    ("Malingo", "Bonduma"),
     ("Buea Town", "Malingo"),
-    ("Bongo Square", "Great Soppo"),
-    ("Malingo", "Muea"),
-    ("Small Soppo", "Check Point"),
+    ("Buea Town", "Muea"),
+
 ]
