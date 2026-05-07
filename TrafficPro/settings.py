@@ -155,8 +155,7 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 EMAIL_TIMEOUT = 20
 
 
-# DEBUG = False
-DEBUG = True
+DEBUG = False
 
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
@@ -167,73 +166,44 @@ CSRF_TRUSTED_ORIGINS = [
 ]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
-# Traffic Collection Config
-# TRAFFIC_ROUTES = [
-#     ("Bonduma Gate", "Mile 17"),
-#     ("Mile 17", "Malingo"),
-#     ("Malingo", "UB Junction"),
-#     ("UB Junction", "Check Point"),
-#     ("Check Point", "Buea Town"),
-#     ("Muea", "Great Soppo"),
-#     ("Great Soppo", "Small Soppo"),
-#     ("Small Soppo", "Bongo Square"),
-#     ("Muea", "Molyko"),
-#     ("Molyko", "Bokwango"),
-#     ("Bokwango", "Buea Town"),
-#     ("Mile 16", "Mile 17"),
-#     ("Mile 17", "Bonduma"),
-#     ("Clerks Quarters", "Governor Junction"),
-#     ("Governor Junction", "Long Street"),
-#     ("Long Street", "Bongo Square"),
-#     ("UB Junction", "Bonduma"),
-#     ("Molyko", "UB Junction"),
-#     ("Check Point", "Molyko"),
-#     ("Muea", "Bonduma"),
-#     ("Buea Town", "Malingo"),
-#     ("Bongo Square", "Great Soppo"),
-#     ("Malingo", "Muea"),
-#     ("Small Soppo", "Check Point"),
-# ]
 
 # Traffic Collection Config
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+
     'formatters': {
         'verbose': {
-            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'format': '{levelname} {asctime} {module} {message}',
             'style': '{',
         },
     },
+
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'verbose',
         },
-        'file': {
-            'class': 'logging.FileHandler',
-            'filename': os.path.join(BASE_DIR, 'logs', 'django.log'),
-            'formatter': 'verbose',
-        },
     },
+
     'root': {
-        'handlers': ['console', 'file'],
+        'handlers': ['console'],
         'level': 'INFO',
     },
+
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
         },
         'TrafficApp': {
-            'handlers': ['console', 'file'],
+            'handlers': ['console'],
             'level': 'DEBUG',
             'propagate': False,
         },
     },
 }
-
 TRAFFIC_ROUTES = [
 
     # Bonduma / UB / Molyko Axis
