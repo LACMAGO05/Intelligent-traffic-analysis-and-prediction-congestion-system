@@ -18,6 +18,7 @@ load_dotenv()
 
 API_KEY = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_CLIENT_SECRET = API_KEY
+OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
@@ -162,4 +163,32 @@ X_FRAME_OPTIONS = 'DENY'
 
 CSRF_TRUSTED_ORIGINS = [
     "https://traffik237.onrender.com"
+]
+
+# Traffic Collection Config
+TRAFFIC_ROUTES = [
+    ("Bonduma Gate", "Mile 17"),
+    ("Mile 17", "Malingo"),
+    ("Malingo", "UB Junction"),
+    ("UB Junction", "Check Point"),
+    ("Check Point", "Buea Town"),
+    ("Muea", "Great Soppo"),
+    ("Great Soppo", "Small Soppo"),
+    ("Small Soppo", "Bongo Square"),
+    ("Muea", "Molyko"),
+    ("Molyko", "Bokwango"),
+    ("Bokwango", "Buea Town"),
+    ("Mile 16", "Mile 17"),
+    ("Mile 17", "Bonduma"),
+    ("Clerks Quarters", "Governor Junction"),
+    ("Governor Junction", "Long Street"),
+    ("Long Street", "Bongo Square"),
+    ("UB Junction", "Bonduma"),
+    ("Molyko", "UB Junction"),
+    ("Check Point", "Molyko"),
+    ("Muea", "Bonduma"),
+    ("Buea Town", "Malingo"),
+    ("Bongo Square", "Great Soppo"),
+    ("Malingo", "Muea"),
+    ("Small Soppo", "Check Point"),
 ]

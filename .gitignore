@@ -40,5 +40,6 @@ wheels/
 
 # Project specific
 google_traffic_data.csv
+google_traffic_data_v2.csv
 *.pkl
 temp_audio/
