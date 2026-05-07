@@ -1,66 +1,17 @@
-<!DOCTYPE html>
+{% extends 'base.html' %}
 {% load static %}
-<html class="light" lang="en">
-<head>
-    <meta charset="utf-8" />
-    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
-    <title>Traffik - Smart Traffic Intelligence</title>
-    <!-- Material Symbols -->
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
-    <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries,typography,aspect-ratio"></script>
-    <script>
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    colors: {
-                        primary: "#000666",
-                        "primary-container": "#1a237e",
-                        surface: "#f7f9fc",
-                    },
-                    fontFamily: {
-                        headline: ["Manrope"],
-                        body: ["Inter"],
-                    },
-                },
-            },
-        };
-    </script>
+
+{% block title %}Traffik Intelligence - Smart Traffic Solutions{% endblock %}
+
+{% block extra_head %}
     <style>
-        body {
-            background-color: #f7f9fc;
-            color: #191c1e;
-        }
         .hero-gradient {
             background: radial-gradient(circle at top right, #e0e0ff 0%, #f7f9fc 50%);
         }
     </style>
-</head>
-<body class="font-body selection:bg-primary-fixed selection:text-on-primary-fixed">
-    <!-- Navigation -->
-    <nav class="fixed w-full z-50 bg-white/70 backdrop-blur-xl border-b border-slate-200">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="flex justify-between h-16 items-center">
-                <div class="flex items-center gap-2">
-                    <span class="text-2xl font-bold tracking-tighter text-primary font-headline">Traffik</span>
-                </div>
-                <div class="hidden md:flex items-center gap-8">
-                    <a href="#features" class="text-sm font-semibold text-slate-600 hover:text-primary transition-colors">Features</a>
-                    <a href="#about" class="text-sm font-semibold text-slate-600 hover:text-primary transition-colors">About</a>
-                    {% if user.is_authenticated %}
-                        <a href="{% url 'predict' %}" class="bg-primary text-white px-6 py-2 rounded-full text-sm font-bold hover:bg-primary-container transition-all active:scale-95">Dashboard</a>
-                    {% else %}
-                        <a href="{% url 'signin' %}" class="text-sm font-semibold text-primary hover:underline">Sign In</a>
-                        <a href="{% url 'signup' %}" class="bg-primary text-white px-6 py-2 rounded-full text-sm font-bold hover:bg-primary-container transition-all active:scale-95">Get Started</a>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-    </nav>
+{% endblock %}
 
+{% block content %}
     <!-- Hero Section -->
     <section class="relative pt-32 pb-20 lg:pt-48 lg:pb-32 hero-gradient overflow-hidden">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
@@ -147,20 +98,11 @@
             </div>
         </div>
     </section>
+{% endblock %}
 
-    <!-- Footer -->
-    <footer class="bg-slate-900 text-slate-400 py-12">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <p class="text-2xl font-bold text-white mb-4 font-headline tracking-tighter">Traffik</p>
-            <p class="mb-8">Making city navigation smarter, one route at a time.</p>
-            <div class="border-t border-slate-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-                <p class="text-sm">© 2026 Traffik Intelligence. All rights reserved.</p>
-                <div class="flex gap-6">
-                    <a href="#" class="hover:text-white transition-colors">Privacy Policy</a>
-                    <a href="#" class="hover:text-white transition-colors">Terms of Service</a>
-                </div>
-            </div>
-        </div>
-    </footer>
-</body>
-</html>
+{% block footer %}
+    <!-- Contact Section -->
+    {% include 'includes/contact.html' %}
+
+    {% include 'includes/footer.html' %}
+{% endblock %}

@@ -6,11 +6,13 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.mail import send_mail
 from .utils import generate_otp, get_realtime_traffic, find_best_departure_time
+from .services.email_service import send_verification_email, send_welcome_email
 from .models import ChatMessage, ChatThread
 from django.http import JsonResponse
 from django_ratelimit.decorators import ratelimit
 from django.contrib.auth.hashers import make_password
 from django.conf import settings
+from .forms import ContactForm
 import traceback   #lets us print the real error to terminal
 from django.utils import timezone
 import datetime
@@ -23,6 +25,39 @@ supabase = create_client(
     settings.SUPABASE_URL,
     settings.SUPABASE_KEY
 )
+
+def contact_view(request):
+    if request.method == 'POST':
+        form = ContactForm(request.POST)
+        if form.is_valid():
+            name = form.cleaned_data['name']
+            email = form.cleaned_data['email']
+            subject_key = form.cleaned_data['subject']
+            message = form.cleaned_data['message']
+            
+            # Map choice key to label
+            subjects = dict(ContactForm.SUBJECT_CHOICES)
+            subject_label = subjects.get(subject_key, subject_key)
+            
+            email_subject = f"Contact Form: {subject_label} from {name}"
+            email_message = f"Name: {name}\nEmail: {email}\nSubject: {subject_label}\n\nMessage:\n{message}"
+            
+            try:
+                send_mail(
+                    email_subject,
+                    email_message,
+                    settings.DEFAULT_FROM_EMAIL,
+                    [settings.DEFAULT_FROM_EMAIL], # Sending to admin (self)
+                    fail_silently=False,
+                )
+                return JsonResponse({"status": "success", "message": "Your message has been sent successfully!"})
+            except Exception as e:
+                print(f"Email sending failed: {e}")
+                return JsonResponse({"status": "error", "message": "Failed to send email. Please try again later."}, status=500)
+        else:
+            return JsonResponse({"status": "error", "errors": form.errors}, status=400)
+    
+    return redirect('landing')
 
 def landing_view(request):
     if request.user.is_authenticated:
@@ -68,17 +103,9 @@ def signup_view(request):
             'otp':      otp
             
         }
-        try:
-            send_mail(
-                "Please verify your email address",
-                f"Hi {username}, We received your request for a single-use code to finish your Traffik account creation.\n\nPlease use the 6-digit code below to verify your email address for Traffik.\n\n Your verification code: {otp}\n\nThanks,\nThe Traffik account team",
-                settings.EMAIL_HOST_USER,
-                [email],
-                fail_silently=True,
-            )
-        except Exception as e:
-            traceback.print_exc()
-            messages.error(request, f"Failed to send verification email: {str(e)}")
+        success = send_verification_email(email, username, otp)
+        if not success:
+            messages.error(request, "Failed to send verification email. Please try again later.")
             return redirect("signup")
         return redirect("otp")
     return render(request, "sign_up.html")
@@ -99,28 +126,29 @@ def verify_otp(request):
             commuter_group, _ = Group.objects.get_or_create(name='Commuter')
             user.groups.add(commuter_group)
             user.save()
+            send_welcome_email(user.email, user.username)
             messages.success(request, "Account created successfully")
             return redirect("signin")
         else:
             messages.error(request, "Invalid OTP")
     return render(request, "otp.html")
 
-@login_required
-def dashboard_view(request):
-    # For Master's project feel: provide some simplified forecast data without using ML model
-    # We'll use a static forecast or a single API call for a representative route
-    # to avoid excessive API usage on every page load.
-    now = timezone.now()
-    forecast = [
-        {"time": f"{(now.hour + 1) % 24}:00", "label": "Low", "color": "green"},
-        {"time": f"{(now.hour + 2) % 24}:00", "label": "Medium", "color": "yellow"},
-        {"time": f"{(now.hour + 3) % 24}:00", "label": "Low", "color": "green"},
-    ]
-
-    return render(request, 'dashboard.html', {
-        'google_maps_api_key': settings.GOOGLE_CLIENT_SECRET,
-        'forecast': forecast
-    })
+# @login_required
+# def dashboard_view(request):
+#     # For Master's project feel: provide some simplified forecast data without using ML model
+#     # We'll use a static forecast or a single API call for a representative route
+#     # to avoid excessive API usage on every page load.
+#     now = timezone.now()
+#     forecast = [
+#         {"time": f"{(now.hour + 1) % 24}:00", "label": "Low", "color": "green"},
+#         {"time": f"{(now.hour + 2) % 24}:00", "label": "Medium", "color": "yellow"},
+#         {"time": f"{(now.hour + 3) % 24}:00", "label": "Low", "color": "green"},
+#     ]
+#
+#     return render(request, 'predict.html', {
+#         'google_maps_api_key': settings.GOOGLE_CLIENT_SECRET,
+#         'forecast': forecast
+#     })
 
 
 def logout_view(request):
@@ -274,7 +302,7 @@ def predict_view(request):
             return JsonResponse({"error": str(e)}, status=500)
 
     # GET request: Load the page
-    return render(request, 'dashboard.html', {
+    return render(request, 'predict.html', {
         'google_maps_api_key': settings.GOOGLE_CLIENT_SECRET
     })
 

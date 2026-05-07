@@ -1,0 +1,46 @@
+/* Loader Overlay */
+#global-loader {
+    transition: opacity 0.3s ease-in-out, visibility 0.3s ease-in-out;
+    visibility: hidden;
+}
+
+#global-loader.show {
+    visibility: visible;
+    opacity: 1;
+}
+
+/* Spinner Animation (Tailwind animate-spin is usually enough, but here is a custom one) */
+@keyframes spin-fast {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.animate-spin-fast {
+    animation: spin-fast 0.8s linear infinite;
+}
+
+
+body {
+    background-color: red;
+}
+/* Button Loading State */
+.btn-loading {
+    position: relative;
+    color: transparent !important;
+    pointer-events: none;
+}
+
+.btn-loading::after {
+    content: "";
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    top: 50%;
+    left: 50%;
+    margin-top: -10px;
+    margin-left: -10px;
+    border: 3px solid rgba(255,255,255,0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: spin-fast 0.8s linear infinite;
+}

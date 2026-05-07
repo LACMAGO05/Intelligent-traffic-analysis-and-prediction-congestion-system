@@ -1,0 +1,19 @@
+<div id="global-loader" class="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 backdrop-blur-sm hidden transition-opacity duration-300 opacity-0">
+    <div class="flex flex-col items-center p-6 bg-white dark:bg-slate-900 rounded-2xl shadow-2xl">
+        <div class="relative w-16 h-16">
+            <!-- Outer Ring -->
+            <div class="absolute inset-0 border-4 border-primary/20 rounded-full"></div>
+            <!-- Spinning Ring -->
+            <div class="absolute inset-0 border-4 border-transparent border-t-primary rounded-full animate-spin"></div>
+        </div>
+        <p class="mt-4 font-headline font-bold text-primary dark:text-primary-fixed text-lg">Loading...</p>
+    </div>
+</div>
+
+<style>
+    /* Custom styles for loader if needed */
+    #global-loader.show {
+        display: flex;
+        opacity: 1;
+    }
+</style>

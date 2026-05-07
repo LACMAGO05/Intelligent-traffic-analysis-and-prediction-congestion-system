@@ -11,40 +11,43 @@ async function predictTraffic() {
         return;
     }
 
-    let statusMsg = `
-        <div class="flex items-center gap-2">
-            <span class="material-symbols-outlined text-sm animate-spin">sync</span>
-            <span>Checking traffic from <span class="font-bold">${origin}</span> to <span class="font-bold">${destination}</span>${day !== "now" ? ` for <span class="font-bold">${day}</span>` : ""}${time ? ` at <span class="font-bold">${time}</span>` : ""}...</span>
-        </div>
-    `;
-    displayMessage(statusMsg, "user");
+    if (window.UI) window.UI.startProgress();
 
-    let bodyParams = { origin, destination, day, time };
-    if (currentThreadId) {
-        bodyParams.thread_id = currentThreadId;
-    }
-
-    let response = await fetch("/predict/", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-CSRFToken": getCookie("csrftoken")
-        },
-        body: new URLSearchParams(bodyParams)
-    });
-
-    let data = await response.json();
-    console.log("Backend response:", data);
-
-    if (data.error) {
-        displayMessage(`
-            <div class="flex items-center gap-3 text-error">
-                <span class="material-symbols-outlined">error</span>
-                <p class="font-bold">Error: ${data.error}</p>
+    try {
+        let statusMsg = `
+            <div class="flex items-center gap-2 text-white">
+                <span class="material-symbols-outlined text-sm animate-spin">sync</span>
+                <span>Checking traffic from <span class="font-bold">${origin}</span> to <span class="font-bold">${destination}</span>${day !== "now" ? ` for <span class="font-bold">${day}</span>` : ""}${time ? ` at <span class="font-bold">${time}</span>` : ""}...</span>
             </div>
-        `, "bot");
-        return;
-    }
+        `;
+        displayMessage(statusMsg, "user");
+
+        let bodyParams = { origin, destination, day, time };
+        if (currentThreadId) {
+            bodyParams.thread_id = currentThreadId;
+        }
+
+        let response = await fetch("/predict/", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "X-CSRFToken": getCookie("csrftoken")
+            },
+            body: new URLSearchParams(bodyParams)
+        });
+
+        let data = await response.json();
+        console.log("Backend response:", data);
+
+        if (data.error) {
+            displayMessage(`
+                <div class="flex items-center gap-3 text-error">
+                    <span class="material-symbols-outlined">error</span>
+                    <p class="font-bold">Error: ${data.error}</p>
+                </div>
+            `, "bot");
+            return;
+        }
 
     if (data.thread_id) {
         if (!currentThreadId) {
@@ -83,11 +86,11 @@ async function predictTraffic() {
                 <b>Tip:</b> A better time to leave is <b>${data.recommended_departure.time}</b> (${data.recommended_departure.travel_time} mins, <b>${data.recommended_departure.congestion}</b> traffic).
             </span>`;
         }
-        statusEmoji = "🔴";
-        headerColor = "text-red-700";
-    }
+            statusEmoji = "🔴";
+            headerColor = "text-red-700";
+        }
 
-    let botReply = `
+        let botReply = `
         <div class="flex flex-col gap-6 w-full font-sans text-on-surface">
             <!-- Header Section with Badge -->
             <div class="flex items-center justify-between">
@@ -198,19 +201,56 @@ async function predictTraffic() {
 
     botReply += `</div>`;
 
-    displayMessage(botReply, "bot");
+        displayMessage(botReply, "bot");
+    } catch (err) {
+        console.error("Prediction error:", err);
+        displayMessage(`
+            <div class="flex items-center gap-3 text-error">
+                <span class="material-symbols-outlined">error</span>
+                <p class="font-bold">Error: ${err.message || 'Failed to get prediction'}</p>
+            </div>
+        `, "bot");
+    } finally {
+        if (window.UI) window.UI.stopProgress();
+        if (window.TraffikLoader) {
+            window.TraffikLoader.hide();
+            const predictBtn = document.querySelector('button[onclick="predictTraffic()"]');
+            if (predictBtn) window.TraffikLoader.revertButton(predictBtn);
+        }
+    }
 }
 
 async function loadChatThreads() {
+    const historyList = document.getElementById("history-list");
+    if (!historyList) return;
+
+    // Show skeletons while loading
+    const skeletonTemplate = document.getElementById('skeleton-table-row-template');
+    if (skeletonTemplate) {
+        // Create 3 skeleton rows
+        let skeletonHtml = '';
+        for(let i=0; i<3; i++) {
+            skeletonHtml += `
+                <div class="flex items-center gap-3 px-4 py-3 animate-pulse">
+                    <div class="w-8 h-8 bg-slate-200 rounded-lg skeleton"></div>
+                    <div class="flex-1 space-y-2">
+                        <div class="h-3 bg-slate-200 rounded w-3/4 skeleton"></div>
+                        <div class="h-2 bg-slate-100 rounded w-1/2 skeleton"></div>
+                    </div>
+                </div>
+            `;
+        }
+        historyList.innerHTML = skeletonHtml;
+    }
+
     try {
         const response = await fetch("/chat-history/");
         const data = await response.json();
-        const historyList = document.getElementById("history-list");
 
         if (data.history && data.history.length > 0) {
             historyList.innerHTML = data.history.map(thread => `
                 <div onclick="loadThread('${thread.id}')" 
-                     class="group flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition-all hover:bg-slate-200 dark:hover:bg-slate-800 ${currentThreadId === thread.id ? 'bg-slate-200 dark:bg-slate-800' : ''}">
+                     class="group flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition-all hover:bg-slate-200 dark:hover:bg-slate-800 ${currentThreadId === thread.id ? 'bg-slate-200 dark:bg-slate-800' : ''} content-fade-in">
                     <span class="material-symbols-outlined text-lg text-slate-400 group-hover:text-primary transition-colors">chat_bubble</span>
                     <div class="flex-1 min-w-0">
                         <p class="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate">${thread.title}</p>
@@ -371,21 +411,21 @@ function displayMessage(msg, sender) {
 
     if (sender === "user") {
         bubble = `
-        <div class="flex justify-end animate-fade-in animate-slide-in-from-right">
+        <div class="flex justify-end content-fade-in">
             <div class="bg-primary-container text-on-primary-container p-4 rounded-2xl rounded-tr-none shadow-sm max-w-[85%] md:max-w-[70%]">
                 <p class="text-sm font-medium">${msg}</p>
             </div>
         </div>`;
     } else {
         bubble = `
-        <div class="flex justify-start animate-fade-in animate-slide-in-from-left">
+        <div class="flex justify-start content-fade-in">
             <div class="bg-white border border-outline-variant/20 p-5 rounded-2xl rounded-tl-none shadow-md w-full max-w-[95%] md:max-w-[85%] text-on-surface">
                 ${msg}
             </div>
         </div>`;
     }
 
-    chatBox.innerHTML += bubble;
+    chatBox.insertAdjacentHTML('beforeend', bubble);
     chatBox.scrollTop = chatBox.scrollHeight;
 }
 
@@ -550,10 +590,18 @@ if (typeof google !== 'undefined' && google.maps && google.maps.event) {
 
 // ── Alerts System ──────────────────────────────────────────
 async function fetchAlerts() {
-    try {
-        const alertsList = document.getElementById("alerts-list");
-        if (!alertsList) return;
+    const alertsList = document.getElementById("alerts-list");
+    if (!alertsList) return;
 
+    // Show skeleton while loading if list is empty
+    if (alertsList.innerHTML.trim() === '' || alertsList.querySelector('p')) {
+        const skeletonCard = document.getElementById('skeleton-card-template');
+        if (skeletonCard) {
+            alertsList.innerHTML = skeletonCard.innerHTML;
+        }
+    }
+
+    try {
         const response = await fetch("/alerts/");
         const data = await response.json();
 
@@ -578,56 +626,3 @@ setInterval(fetchAlerts, 120000);
 // Initial fetch
 fetchAlerts();
 loadChatThreads();
-
-// Sidebar Collapse and Mobile Menu Logic
-document.addEventListener('DOMContentLoaded', () => {
-    const sidebar = document.getElementById('sidebar');
-    const mainContent = document.getElementById('main-content');
-    const toggleBtn = document.getElementById('sidebar-toggle');
-    const toggleIcon = document.getElementById('toggle-icon');
-    const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
-
-    // Desktop toggle (Collapse)
-    if (toggleBtn && sidebar && mainContent) {
-        toggleBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            sidebar.classList.toggle('collapsed');
-            mainContent.classList.toggle('sidebar-collapsed');
-            
-            // Update icon
-            if (sidebar.classList.contains('collapsed')) {
-                toggleIcon.textContent = 'chevron_right';
-            } else {
-                toggleIcon.textContent = 'chevron_left';
-            }
-        });
-    }
-
-    // Mobile toggle (Open/Close drawer)
-    if (mobileMenuToggle && sidebar) {
-        mobileMenuToggle.addEventListener('click', (e) => {
-            e.preventDefault();
-            sidebar.classList.toggle('open');
-            
-            // Change icon if needed
-            const icon = mobileMenuToggle.querySelector('span');
-            if (sidebar.classList.contains('open')) {
-                icon.textContent = 'close';
-            } else {
-                icon.textContent = 'menu';
-            }
-        });
-    }
-
-    // Close sidebar when clicking outside on mobile
-    document.addEventListener('click', (e) => {
-        if (window.innerWidth < 1024) {
-            if (sidebar.classList.contains('open') && 
-                !sidebar.contains(e.target) && 
-                !mobileMenuToggle.contains(e.target)) {
-                sidebar.classList.remove('open');
-                mobileMenuToggle.querySelector('span').textContent = 'menu';
-            }
-        }
-    });
-});

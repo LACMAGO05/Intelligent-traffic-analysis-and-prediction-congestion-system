@@ -1,0 +1,125 @@
+<section id="contact-section" class="py-20 bg-white">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="text-center mb-12">
+            <h2 class="text-3xl md:text-4xl font-extrabold text-slate-900 font-headline mb-4">Contact Us</h2>
+            <p class="text-lg text-slate-600">Have a problem, suggestion, or complaint? Let us know.</p>
+        </div>
+
+        <div class="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden">
+            <div class="p-8 md:p-12">
+                <form id="contact-form" method="POST" action="{% url 'contact' %}" class="space-y-6" data-ajax="true">
+                    {% csrf_token %}
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <label for="{{ contact_form.name.id_for_label }}" class="block text-sm font-semibold text-slate-700 ml-1">Full Name</label>
+                            {{ contact_form.name }}
+                        </div>
+                        <div class="space-y-2">
+                            <label for="{{ contact_form.email.id_for_label }}" class="block text-sm font-semibold text-slate-700 ml-1">Email Address</label>
+                            {{ contact_form.email }}
+                        </div>
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <label for="{{ contact_form.subject.id_for_label }}" class="block text-sm font-semibold text-slate-700 ml-1">Subject</label>
+                        {{ contact_form.subject }}
+                    </div>
+
+                    <div class="space-y-2">
+                        <label for="{{ contact_form.message.id_for_label }}" class="block text-sm font-semibold text-slate-700 ml-1">Message</label>
+                        {{ contact_form.message }}
+                    </div>
+
+                    <div class="pt-4">
+                        <button type="submit" id="contact-submit-btn" class="w-full bg-primary text-white font-bold py-4 px-8 rounded-xl hover:bg-primary-container transform hover:-translate-y-1 transition-all duration-300 shadow-lg hover:shadow-xl flex items-center justify-center gap-2">
+                            <span class="material-symbols-outlined">send</span>
+                            Send Message
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Success/Error Toast Notifications -->
+<div id="contact-toast" class="fixed bottom-8 right-8 z-[10002] transform translate-y-20 opacity-0 transition-all duration-500 pointer-events-none">
+    <div class="flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl text-white min-w-[300px]">
+        <span id="contact-toast-icon" class="material-symbols-outlined"></span>
+        <p id="contact-toast-message" class="font-medium"></p>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const contactForm = document.getElementById('contact-form');
+    const submitBtn = document.getElementById('contact-submit-btn');
+    const toast = document.getElementById('contact-toast');
+    const toastMessage = document.getElementById('contact-toast-message');
+    const toastIcon = document.getElementById('contact-toast-icon');
+
+    function showToast(message, type = 'success') {
+        toastMessage.textContent = message;
+        toast.className = `fixed bottom-8 right-8 z-[10002] transform translate-y-0 opacity-100 transition-all duration-500 flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl text-white min-w-[300px] ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+        toastIcon.textContent = type === 'success' ? 'check_circle' : 'error';
+        
+        setTimeout(() => {
+            toast.classList.add('translate-y-20', 'opacity-0');
+            toast.classList.remove('translate-y-0', 'opacity-100');
+        }, 5000);
+    }
+
+    if (contactForm) {
+        contactForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // UI state management
+            if (window.UI) {
+                UI.startProgress();
+                UI.showLoader();
+            }
+            
+            submitBtn.disabled = true;
+            const originalContent = submitBtn.innerHTML;
+            submitBtn.innerHTML = '<span class="material-symbols-outlined animate-spin">sync</span> Sending...';
+
+            const formData = new FormData(contactForm);
+
+            try {
+                const response = await fetch(contactForm.action, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    showToast(data.message, 'success');
+                    contactForm.reset();
+                } else {
+                    let errorMsg = data.message || 'Something went wrong. Please check the form and try again.';
+                    if (data.errors) {
+                        // Concatenate form errors if available
+                        errorMsg = Object.values(data.errors).flat().join(' ');
+                    }
+                    showToast(errorMsg, 'error');
+                }
+            } catch (error) {
+                console.error('Submission error:', error);
+                showToast('A network error occurred. Please try again later.', 'error');
+            } finally {
+                if (window.UI) {
+                    UI.stopProgress();
+                    UI.hideLoader();
+                }
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = originalContent;
+            }
+        });
+    }
+});
+</script>

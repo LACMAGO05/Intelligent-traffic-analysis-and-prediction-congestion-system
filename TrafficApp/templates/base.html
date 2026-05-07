@@ -1,0 +1,84 @@
+{% load static %}
+<!DOCTYPE html>
+<html class="light" lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>{% block title %}Traffik Intelligence{% endblock %}</title>
+    
+    <!-- Material Symbols -->
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries,typography,aspect-ratio"></script>
+    
+    <!-- UI Enhancement Styles -->
+    <link href="{% static 'css/ui-enhancements.css' %}" rel="stylesheet" />
+    <link href="{% static 'css/loader.css' %}" rel="stylesheet" />
+    
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              primary: "#000666",
+              "primary-container": "#1a237e",
+              surface: "#f7f9fc",
+              background: "#f7f9fc",
+            },
+            fontFamily: {
+              headline: ["Manrope"],
+              body: ["Inter"],
+            },
+          },
+        },
+      }
+    </script>
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="font-body bg-surface text-slate-900 min-h-screen">
+    {% include 'includes/header.html' %}
+    
+    {% include 'includes/loader.html' %}
+    {% include 'includes/progress_bar.html' %}
+    {% include 'includes/skeletons.html' %}
+
+    {% if messages %}
+    <div class="fixed top-20 right-4 z-[10001] flex flex-col gap-2">
+        {% for message in messages %}
+        <div class="p-4 rounded-xl shadow-2xl text-white animate-fade-in
+            {% if message.tags == 'warning' %} bg-orange-500
+            {% elif message.tags == 'success' %} bg-green-500
+            {% elif message.tags == 'error' %} bg-red-500
+            {% else %} bg-blue-500 text-white {% endif %}"
+            role="alert">
+            <p class="font-bold flex items-center gap-2">
+                <span class="material-symbols-outlined text-sm">info</span>
+                {{ message.tags|title }}
+            </p>
+            <p class="text-sm opacity-90">{{ message }}</p>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <main class="pb-20 lg:pb-0">
+        {% block content %}{% endblock %}
+    </main>
+
+    {% include 'includes/bottom_nav.html' %}
+
+    {% block footer %}
+    {% endblock %}
+
+    <!-- UI Enhancement Scripts -->
+    <script src="{% static 'js/ui-enhancements.js' %}"></script>
+    <script src="{% static 'js/loader.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

@@ -13,6 +13,7 @@ urlpatterns = [
     path("chat-history/", views.chat_history_view, name="chat_history"),
     path("chat-history/<uuid:thread_id>/", views.thread_detail_view, name="thread_detail"),
     path('analytics/', views.analytics_view, name='analytics'),
+    path('contact/', views.contact_view, name='contact'),
 
     # Password Reset URLs
     path('password_reset/', auth_views.PasswordResetView.as_view(), name='password_reset'),

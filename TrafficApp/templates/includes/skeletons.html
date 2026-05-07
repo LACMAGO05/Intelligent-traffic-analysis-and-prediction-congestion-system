@@ -1,0 +1,39 @@
+<!-- Skeleton Card -->
+<template id="skeleton-card-template">
+    <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm animate-pulse">
+        <div class="flex items-center justify-between mb-6">
+            <div class="w-12 h-12 bg-slate-200 rounded-2xl skeleton"></div>
+            <div class="w-20 h-4 bg-slate-100 rounded skeleton"></div>
+        </div>
+        <div class="w-32 h-4 bg-slate-100 rounded mb-2 skeleton"></div>
+        <div class="w-24 h-8 bg-slate-200 rounded skeleton"></div>
+    </div>
+</template>
+
+<!-- Skeleton Table Row -->
+<template id="skeleton-table-row-template">
+    <tr class="animate-pulse">
+        <td class="px-6 py-4"><div class="h-4 bg-slate-200 rounded w-3/4 skeleton"></div></td>
+        <td class="px-6 py-4"><div class="h-4 bg-slate-200 rounded w-1/2 skeleton"></div></td>
+        <td class="px-6 py-4"><div class="h-4 bg-slate-200 rounded w-1/4 skeleton"></div></td>
+        <td class="px-6 py-4"><div class="h-8 bg-slate-200 rounded w-20 skeleton"></div></td>
+    </tr>
+</template>
+
+<!-- Skeleton Chart -->
+<template id="skeleton-chart-template">
+    <div class="w-full h-64 bg-slate-50 rounded-3xl border border-slate-100 p-6 flex items-end gap-2 animate-pulse">
+        <div class="flex-1 bg-slate-200 rounded-t skeleton" style="height: 40%"></div>
+        <div class="flex-1 bg-slate-200 rounded-t skeleton" style="height: 70%"></div>
+        <div class="flex-1 bg-slate-200 rounded-t skeleton" style="height: 50%"></div>
+        <div class="flex-1 bg-slate-200 rounded-t skeleton" style="height: 90%"></div>
+        <div class="flex-1 bg-slate-200 rounded-t skeleton" style="height: 60%"></div>
+        <div class="flex-1 bg-slate-200 rounded-t skeleton" style="height: 80%"></div>
+        <div class="flex-1 bg-slate-200 rounded-t skeleton" style="height: 45%"></div>
+    </div>
+</template>
+
+<!-- Usage Helpers -->
+<div id="skeleton-container" style="display: none;">
+    <!-- These can be injected into the DOM where needed -->
+</div>

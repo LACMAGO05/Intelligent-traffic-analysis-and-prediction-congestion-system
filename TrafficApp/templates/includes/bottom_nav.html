@@ -1,0 +1,35 @@
+<div class="
+    fixed bottom-0 left-0 right-0 z-50
+    bg-white border-t shadow-md
+    flex justify-around items-center
+    h-16
+    lg:hidden
+">
+
+    <!-- Nav Item -->
+    <a href="/" class="flex flex-col items-center {% if request.path == '/' %}text-primary font-semibold{% else %}text-gray-600{% endif %} hover:text-primary transition-colors duration-200">
+        <span class="material-symbols-outlined">home</span>
+        <span class="text-xs">Home</span>
+    </a>
+
+    <a href="{% url 'signin' %}" class="flex flex-col items-center {% if request.path == '/predict/' %}text-primary font-semibold{% else %}text-gray-600{% endif %} hover:text-primary transition-colors duration-200">
+        <span class="material-symbols-outlined">speed</span>
+        <span class="text-xs">Predict</span>
+    </a>
+
+    <a href="{% url 'analytics' %}" class="flex flex-col items-center {% if request.path == '/analytics/' %}text-primary font-semibold{% else %}text-gray-600{% endif %} hover:text-primary transition-colors duration-200">
+        <span class="material-symbols-outlined">insights</span>
+        <span class="text-xs">Analytics</span>
+    </a>
+
+    <a href="{% url 'predict' %}" class="flex flex-col items-center {% if request.path == '/predict/' %}text-primary font-semibold{% else %}text-gray-600{% endif %} hover:text-primary transition-colors duration-200">
+        <span class="material-symbols-outlined">dashboard</span>
+        <span class="text-xs">Dashboard</span>
+    </a>
+
+    <a href="{% url 'contact' %}" class="flex flex-col items-center {% if request.path == '/contact/' %}text-primary font-semibold{% else %}text-gray-600{% endif %} hover:text-primary transition-colors duration-200">
+        <span class="material-symbols-outlined">mail</span>
+        <span class="text-xs">Contact</span>
+    </a>
+
+</div>
