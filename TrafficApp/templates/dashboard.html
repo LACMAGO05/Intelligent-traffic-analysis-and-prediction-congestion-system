@@ -428,8 +428,18 @@
                 Log Incident
               </button>
             </div>
+            <!-- Main Input Toggle (Mobile Only) -->
+            <button
+              id="mainInputToggle"
+              onclick="toggleMainInput()"
+              class="md:hidden flex items-center justify-between w-full px-4 py-2 bg-surface-container-low rounded-xl border border-outline-variant/30 text-on-surface font-semibold text-sm"
+            >
+              <span>Route Prediction</span>
+              <span id="toggleIcon" class="material-symbols-outlined transition-transform duration-300">expand_more</span>
+            </button>
+
             <!-- Main Input (Updated for Origin/Destination) -->
-            <div class="relative group bg-surface-container-low p-3 md:p-4 rounded-2xl shadow-sm border border-transparent focus-within:border-primary-container/20">
+            <div id="mainInputContainer" class="hidden md:block relative group bg-surface-container-low p-3 md:p-4 rounded-2xl shadow-sm border border-transparent focus-within:border-primary-container/20 transition-all duration-300">
               <div class="flex flex-col gap-3 md:gap-4">
                 <div class="flex flex-col md:flex-row gap-3 md:gap-4 items-center">
                   <div class="flex-1 w-full relative">
@@ -489,6 +499,19 @@
       </main>
     </div>
     <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initAutocomplete"></script>
+    <script>
+      function toggleMainInput() {
+        const container = document.getElementById('mainInputContainer');
+        const icon = document.getElementById('toggleIcon');
+        if (container.classList.contains('hidden')) {
+          container.classList.remove('hidden');
+          icon.style.transform = 'rotate(180deg)';
+        } else {
+          container.classList.add('hidden');
+          icon.style.transform = 'rotate(0deg)';
+        }
+      }
+    </script>
     <script src="{% static 'index.js' %}?v=1"></script>
   </body>
 </html>
