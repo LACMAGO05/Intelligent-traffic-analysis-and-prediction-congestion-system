@@ -146,7 +146,7 @@ ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_AUTHENTICATION_METHOD = "email"
 ACCOUNT_EMAIL_REQUIRED = True
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
-EMAIL_TIMEOUT = 20
+# EMAIL_BACKEND is not set, defaulting to SMTP in Django, but we use SendGrid API via custom services.
 
 
 

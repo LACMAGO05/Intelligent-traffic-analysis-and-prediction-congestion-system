@@ -6,13 +6,13 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.mail import send_mail
 from .utils import generate_otp, get_realtime_traffic, find_best_departure_time
-from .services.email_service import send_verification_email, send_welcome_email
+from .services.email_service import send_verification_email, send_welcome_email, send_contact_email
 from .models import ChatMessage, ChatThread
 from django.http import JsonResponse
 from django_ratelimit.decorators import ratelimit
 from django.contrib.auth.hashers import make_password
 from django.conf import settings
-from .forms import ContactForm
+from .forms import ContactForm, CustomPasswordResetForm
 import traceback   #lets us print the real error to terminal
 from django.utils import timezone
 import datetime
@@ -25,6 +25,9 @@ supabase = create_client(
     settings.SUPABASE_URL,
     settings.SUPABASE_KEY
 )
+
+from django.contrib.auth import views as auth_views
+from django.urls import reverse_lazy
 
 def contact_view(request):
     if request.method == 'POST':
@@ -43,14 +46,11 @@ def contact_view(request):
             email_message = f"Name: {name}\nEmail: {email}\nSubject: {subject_label}\n\nMessage:\n{message}"
             
             try:
-                send_mail(
-                    email_subject,
-                    email_message,
-                    settings.DEFAULT_FROM_EMAIL,
-                    [settings.DEFAULT_FROM_EMAIL], # Sending to admin (self)
-                    fail_silently=False,
-                )
-                return JsonResponse({"status": "success", "message": "Your message has been sent successfully!"})
+                success = send_contact_email(name, email, subject_label, message)
+                if success:
+                    return JsonResponse({"status": "success", "message": "Your message has been sent successfully!"})
+                else:
+                    return JsonResponse({"status": "error", "message": "Failed to send email. Please try again later."}, status=500)
             except Exception as e:
                 print(f"Email sending failed: {e}")
                 return JsonResponse({"status": "error", "message": "Failed to send email. Please try again later."}, status=500)
@@ -109,6 +109,10 @@ def signup_view(request):
             return redirect("signup")
         return redirect("otp")
     return render(request, "sign_up.html")
+
+class CustomPasswordResetView(auth_views.PasswordResetView):
+    form_class = CustomPasswordResetForm
+    success_url = reverse_lazy('password_reset_done')
 
 
 def verify_otp(request):

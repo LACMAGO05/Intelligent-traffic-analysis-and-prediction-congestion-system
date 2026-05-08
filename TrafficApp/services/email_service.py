@@ -63,3 +63,10 @@ def send_password_reset_email(user_email, reset_link):
         f"The Traffik team"
     )
     return _send_email_safe(subject, message, user_email)
+
+
+def send_contact_email(name, email, subject, message):
+    email_subject = f"Contact Form: {subject} from {name}"
+    email_message = f"Name: {name}\nEmail: {email}\nSubject: {subject}\n\nMessage:\n{message}"
+    recipient = os.getenv("DEFAULT_FROM_EMAIL")
+    return _send_email_safe(email_subject, email_message, recipient)
