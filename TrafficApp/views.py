@@ -162,33 +162,33 @@ def logout_view(request):
     logout(request)
     return redirect("landing")
 
-@login_required
-def get_gridlock_alerts(request):
-    """
-    Checks for high congestion in key Buea routes and returns alerts.
-    """
-    routes_to_check = [
-        ("Mile 17 Buea", "Malingo Junction Buea"),
-        ("Malingo Junction Buea", "Great Soppo Buea"),
-        ("Great Soppo Buea", "Check Point Buea"),
-        ("Check Point Buea", "Mile 17 Buea")
-    ]
-    
-    alerts = []
-    try:
-        for origin, destination in routes_to_check:
-            # We can use real-time traffic for current alerts
-            data = get_realtime_traffic(origin, destination)
-            if data.get("congestion") == "High":
-                alerts.append({
-                    "route": data["route"],
-                    "congestion": "High",
-                    "travel_time": data["travel_time"],
-                    "timestamp": timezone.now().strftime("%H:%M")
-                })
-        return JsonResponse({"alerts": alerts})
-    except Exception as e:
-        return JsonResponse({"error": str(e)}, status=500)
+# @login_required
+# def get_gridlock_alerts(request):
+#     """
+#     Checks for high congestion in key Buea routes and returns alerts.
+#     """
+#     routes_to_check = [
+#         ("Mile 17 Buea", "Malingo Junction Buea"),
+#         ("Malingo Junction Buea", "Great Soppo Buea"),
+#         ("Great Soppo Buea", "Check Point Buea"),
+#         ("Check Point Buea", "Mile 17 Buea")
+#     ]
+#
+#     alerts = []
+#     try:
+#         for origin, destination in routes_to_check:
+#             # We can use real-time traffic for current alerts
+#             data = get_realtime_traffic(origin, destination)
+#             if data.get("congestion") == "High":
+#                 alerts.append({
+#                     "route": data["route"],
+#                     "congestion": "High",
+#                     "travel_time": data["travel_time"],
+#                     "timestamp": timezone.now().strftime("%H:%M")
+#                 })
+#         return JsonResponse({"alerts": alerts})
+#     except Exception as e:
+#         return JsonResponse({"error": str(e)}, status=500)
 
 import csv
 import os
