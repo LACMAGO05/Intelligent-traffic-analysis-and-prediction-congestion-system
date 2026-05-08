@@ -152,7 +152,7 @@ EMAIL_TIMEOUT = 20
 EMAIL_HOST = "smtp.sendgrid.net"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-
+EMAIL_HOST_USER = "apikey"
 
 
 DEBUG = False
