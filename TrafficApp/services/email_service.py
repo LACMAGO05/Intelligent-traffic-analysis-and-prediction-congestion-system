@@ -1,17 +1,16 @@
+import os
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
-from django.conf import settings
 import logging
-import traceback
 
 logger = logging.getLogger(__name__)
 
 def _send_email_safe(subject, message, recipient_list):
     try:
-        sg = SendGridAPIClient(settings.EMAIL_HOST_PASSWORD)
+        sg = SendGridAPIClient(os.getenv("SENDGRID_API_KEY"))
 
         email = Mail(
-            from_email=settings.DEFAULT_FROM_EMAIL,
+            from_email=os.getenv("DEFAULT_FROM_EMAIL"),
             to_emails=recipient_list,
             subject=subject,
             plain_text_content=message,
@@ -23,14 +22,12 @@ def _send_email_safe(subject, message, recipient_list):
             logger.info(f"Email sent successfully to {recipient_list}")
             return True
         else:
-            logger.warning(f"SendGrid failed: {response.status_code}")
+            logger.error(f"SendGrid failed: {response.status_code}")
             return False
 
     except Exception as e:
-        logger.error(f"SendGrid error: {str(e)}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Email error: {str(e)}")
         return False
-
 
 def send_verification_email(user_email, username, otp):
     subject = "Please verify your email address"
