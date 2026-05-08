@@ -114,6 +114,9 @@ class CustomPasswordResetView(auth_views.PasswordResetView):
     form_class = CustomPasswordResetForm
     success_url = reverse_lazy('password_reset_done')
 
+    def form_valid(self, form):
+        form.save(request=self.request)
+        return super().form_valid(form)
 
 def verify_otp(request):
     if request.method == "POST":

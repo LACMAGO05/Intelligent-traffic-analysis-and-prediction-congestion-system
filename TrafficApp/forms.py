@@ -33,39 +33,48 @@ class ContactForm(forms.Form):
     }))
 
 class CustomPasswordResetForm(PasswordResetForm):
-    def save(self, domain_override=None,
-             email_template_name='registration/password_reset_email.html',
-             use_https=False, token_generator=default_token_generator,
-             from_email=None, request=None, html_email_template_name=None,
-             extra_email_context=None):
+    def save(
+        self,
+        domain_override=None,
+        subject_template_name=None,
+        email_template_name=None,
+        use_https=False,
+        token_generator=default_token_generator,
+        from_email=None,
+        request=None,
+        html_email_template_name=None,
+        extra_email_context=None,
+        **kwargs
+    ):
         """
-        Generates a one-time use link and sends it to the user via SendGrid.
+        Generates password reset link and sends via SendGrid API
         """
+
         email = self.cleaned_data["email"]
+
         if not domain_override:
             current_site = get_current_site(request)
-            site_name = current_site.name
             domain = current_site.domain
         else:
-            site_name = domain = domain_override
-        
+            domain = domain_override
+
         UserModel = get_user_model()
         email_field_name = UserModel.get_email_field_name()
-        users = UserModel._default_manager.filter(**{
-            '%s__iexact' % email_field_name: email,
-            'is_active': True,
-        })
-        
+
+        users = UserModel._default_manager.filter(
+            **{
+                f"{email_field_name}__iexact": email,
+                "is_active": True,
+            }
+        )
+
         for user in users:
             uid = urlsafe_base64_encode(force_bytes(user.pk))
             token = token_generator.make_token(user)
-            protocol = 'https' if use_https else 'http'
-            
-            # Use reverse if you want to be more dynamic, but django default usually matches:
-            # reset_link = f"{protocol}://{domain}/reset/{uid}/{token}/"
-            # However, PasswordResetForm usually handles this via templates. 
-            # Here we follow the user's requirement to build the link correctly.
-            
+
+            protocol = "https" if use_https else "http"
+
             reset_link = f"{protocol}://{domain}/reset/{uid}/{token}/"
-            
+
+            # 🔥 Send using SendGrid API
             send_password_reset_email(user.email, reset_link)
