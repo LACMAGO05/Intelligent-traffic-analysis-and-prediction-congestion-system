@@ -13,6 +13,7 @@ const UI = {
     showLoader: function() {
         const loader = document.getElementById('global-loader');
         if (loader) {
+            loader.classList.remove('hidden');
             loader.classList.add('show');
         }
     },
@@ -24,6 +25,8 @@ const UI = {
         const loader = document.getElementById('global-loader');
         if (loader) {
             loader.classList.remove('show');
+            // Also ensure Tailwind's 'hidden' class is handled if used
+            loader.classList.add('hidden');
         }
     },
 
@@ -144,4 +147,5 @@ document.addEventListener('DOMContentLoaded', () => {
 // Stop progress when page is fully loaded
 window.addEventListener('load', () => {
     UI.stopProgress();
+    UI.hideLoader();
 });

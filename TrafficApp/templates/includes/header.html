@@ -40,8 +40,8 @@
     <div id="mobile-menu" class="hidden md:hidden bg-white border-t border-slate-100 px-4 pt-2 pb-6 space-y-2">
         <a href="{% url 'landing' %}" class="block py-2 text-base font-semibold text-slate-600">Home</a>
         {% if user.is_authenticated %}
-            <a href="{% url 'predict' %}" class="block py-2 text-base font-semibold text-slate-600">Predict</a>
-            <a href="{% url 'analytics' %}" class="block py-2 text-base font-semibold text-slate-600">Analytics</a>
+<!--            <a href="{% url 'predict' %}" class="block py-2 text-base font-semibold text-slate-600">Predict</a>-->
+<!--            <a href="{% url 'analytics' %}" class="block py-2 text-base font-semibold text-slate-600">Analytics</a>-->
             <div class="pt-4 border-t border-slate-100">
                 <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Account: {{ user.username }}</p>
                 <form action="{% url 'logout' %}" method="post">

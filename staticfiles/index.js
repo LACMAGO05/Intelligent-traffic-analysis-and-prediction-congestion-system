@@ -15,7 +15,7 @@ async function predictTraffic() {
 
     try {
         let statusMsg = `
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 text-white">
                 <span class="material-symbols-outlined text-sm animate-spin">sync</span>
                 <span>Checking traffic from <span class="font-bold">${origin}</span> to <span class="font-bold">${destination}</span>${day !== "now" ? ` for <span class="font-bold">${day}</span>` : ""}${time ? ` at <span class="font-bold">${time}</span>` : ""}...</span>
             </div>
@@ -626,56 +626,3 @@ setInterval(fetchAlerts, 120000);
 // Initial fetch
 fetchAlerts();
 loadChatThreads();
-
-// Sidebar Collapse and Mobile Menu Logic
-document.addEventListener('DOMContentLoaded', () => {
-    const sidebar = document.getElementById('sidebar');
-    const mainContent = document.getElementById('main-content');
-    const toggleBtn = document.getElementById('sidebar-toggle');
-    const toggleIcon = document.getElementById('toggle-icon');
-    const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
-
-    // Desktop toggle (Collapse)
-    if (toggleBtn && sidebar && mainContent) {
-        toggleBtn.addEventListener('click', (e) => {
-            e.preventDefault();
-            sidebar.classList.toggle('collapsed');
-            mainContent.classList.toggle('sidebar-collapsed');
-            
-            // Update icon
-            if (sidebar.classList.contains('collapsed')) {
-                toggleIcon.textContent = 'chevron_right';
-            } else {
-                toggleIcon.textContent = 'chevron_left';
-            }
-        });
-    }
-
-    // Mobile toggle (Open/Close drawer)
-    if (mobileMenuToggle && sidebar) {
-        mobileMenuToggle.addEventListener('click', (e) => {
-            e.preventDefault();
-            sidebar.classList.toggle('open');
-            
-            // Change icon if needed
-            const icon = mobileMenuToggle.querySelector('span');
-            if (sidebar.classList.contains('open')) {
-                icon.textContent = 'close';
-            } else {
-                icon.textContent = 'menu';
-            }
-        });
-    }
-
-    // Close sidebar when clicking outside on mobile
-    document.addEventListener('click', (e) => {
-        if (window.innerWidth < 1024) {
-            if (sidebar.classList.contains('open') && 
-                !sidebar.contains(e.target) && 
-                !mobileMenuToggle.contains(e.target)) {
-                sidebar.classList.remove('open');
-                mobileMenuToggle.querySelector('span').textContent = 'menu';
-            }
-        }
-    });
-});

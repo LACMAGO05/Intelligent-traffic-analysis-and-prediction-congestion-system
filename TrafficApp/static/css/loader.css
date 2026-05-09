@@ -20,9 +20,6 @@
 }
 
 
-body {
-    background-color: red;
-}
 /* Button Loading State */
 .btn-loading {
     position: relative;
