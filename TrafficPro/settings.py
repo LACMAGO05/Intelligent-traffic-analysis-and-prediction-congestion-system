@@ -9,18 +9,15 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-from pathlib import Path
 import os
+from pathlib import Path
 import dj_database_url
 from dotenv import load_dotenv
-
 load_dotenv()
 
-API_KEY = os.getenv("GOOGLE_CLIENT_SECRET")
-GOOGLE_CLIENT_SECRET = API_KEY
-OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -29,13 +26,30 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-*n4r#81+4gs)=o*tv00t3%1i55s6fbfoh_0wy@23^#z$0u_ejj"
+SECRET_KEY = os.environ['DJANGO_SECRET_KEY'] # Will crash loudly if missing
 
-# SECURITY WARNING: don't run with debug turned on in production!
+# DEBUG must be explicitly enabled via the environment. Anything other than a
+# truthy value ("1"/"true"/"yes"/"on") is treated as production (DEBUG=False),
+# which is what gates the security block further down (SSL redirect, HSTS, ...).
+DEBUG = os.getenv('DEBUG', 'False').strip().lower() in ('1', 'true', 'yes', 'on')
 
+print("DEBUG =", DEBUG)
 
-ALLOWED_HOSTS = ["127.0.0.1", "localhost", "traffik237.onrender.com"]
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '127.0.0.1, localhost').split(',')
+
+# ── Third-party service credentials (loaded from environment) ─────────────────
+# NOTE: GOOGLE_MAPS_API_KEY is a *browser-exposed* Google Maps API key — it is
+# rendered into predict.html for the JS SDK. It MUST be restricted in the Google
+# Cloud console (HTTP referrer + enabled APIs) to prevent quota/billing abuse.
+# The legacy env name GOOGLE_CLIENT_SECRET is still honoured so existing
+# deployments keep working without an env change.
+GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY') or os.getenv('GOOGLE_CLIENT_SECRET')
+GOOGLE_CLIENT_SECRET = GOOGLE_MAPS_API_KEY  # backward-compatible alias
+
+OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
+SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
+SUPABASE_URL = os.getenv('SUPABASE_URL')
+SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
 
 # Application definition
@@ -146,18 +160,62 @@ ACCOUNT_EMAIL_VERIFICATION = "mandatory"
 ACCOUNT_AUTHENTICATION_METHOD = "email"
 ACCOUNT_EMAIL_REQUIRED = True
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+
+# Auth redirects. Without this, @login_required falls back to Django's default
+# /accounts/login/ which this project does not route (the sign-in page is /login/).
+LOGIN_URL = "/login/"
+LOGIN_REDIRECT_URL = "predict"
 # EMAIL_BACKEND is not set, defaulting to SMTP in Django, but we use SendGrid API via custom services.
 
 
-
-DEBUG = False
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    CSRF_COOKIE_HTTPONLY = False
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SESSION_COOKIE_AGE = 28800
+    SESSION_EXPIRE_AT_BROWSER_CLOSE = True
 
 SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
 
+# Background tasks (TrafficApp.tasks.run_async). When true, fire-and-forget work
+# runs synchronously instead of on the thread pool — used by the test suite and
+# handy for local debugging. In production, leave false (threaded) or replace
+# run_async with a Celery/RQ task.
+TASK_ALWAYS_EAGER = os.getenv('TASK_ALWAYS_EAGER', 'False').strip().lower() in ('1', 'true', 'yes', 'on')
+
+# ── Cache / rate-limit backend ────────────────────────────────────────────────
+# django-ratelimit stores its counters in the Django cache. In production set
+# REDIS_URL so the limits are shared across all Gunicorn workers/dynos (a single
+# attacker otherwise gets `rate * num_workers`). Without REDIS_URL we fall back to
+# per-process local memory, which is fine for local development/tests only.
+# NOTE: the redis backend requires the `redis` package (see requirements.txt).
+REDIS_URL = os.getenv('REDIS_URL')
+if REDIS_URL:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'trafficpro-locmem',
+        }
+    }
+
 CSRF_TRUSTED_ORIGINS = [
-    "https://traffik237.onrender.com"
+    "https://traffik237.onrender.com", 
+    "https://127.0.0.1:8000",
+    "http://127.0.0.1:8000"
 ]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 

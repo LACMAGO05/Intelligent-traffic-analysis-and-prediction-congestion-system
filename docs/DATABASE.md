@@ -1,0 +1,4 @@
+ChatThread
+ChatMessage
+User
+and relationships

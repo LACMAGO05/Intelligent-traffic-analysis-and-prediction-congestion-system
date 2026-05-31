@@ -37,7 +37,7 @@ async function predictTraffic() {
         });
 
         let data = await response.json();
-        console.log("Backend response:", data);
+        console.log("DEBUG: Frontend received prediction data:", data);
 
         if (data.error) {
             displayMessage(`
@@ -112,7 +112,7 @@ async function predictTraffic() {
             <!-- Summary Card -->
             <div class="bg-white rounded-3xl p-6 border border-outline-variant/30 shadow-xl shadow-primary/5">
                 <p class="text-sm text-on-surface-variant mb-6">
-                    I've analyzed the route from <span class="text-on-surface font-semibold underline decoration-primary/20">${origin}</span> to <span class="text-on-surface font-semibold underline decoration-primary/20">${destination}</span>. 
+                    I've analyzed the route from <span class="text-on-surface font-semibold underline decoration-primary/20">${origin}</span> to <span class="text-on-surface font-semibold underline decoration-primary/20">${destination}</span>.
                     ${data.is_prediction ? `Forecast for <b>${data.day}</b> at <b>${data.hour}:00</b>:` : "Current status:"}
                 </p>
 
@@ -121,14 +121,14 @@ async function predictTraffic() {
                     <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
                         <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Travel Time</p>
                         <div class="flex items-baseline gap-1">
-                            <span class="text-3xl font-black text-primary">${data.travel_time}</span>
+                            <span class="text-3xl font-black text-primary">${data.travel_time || 'N/A'}</span>
                             <span class="text-sm font-bold text-primary/60">mins</span>
                         </div>
                     </div>
                     <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
                         <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Distance</p>
                         <div class="flex items-baseline gap-1">
-                            <span class="text-3xl font-black text-on-surface">${data.distance}</span>
+                            <span class="text-3xl font-black text-on-surface">${data.distance || 'N/A'}</span>
                             <span class="text-sm font-bold text-on-surface-variant">km</span>
                         </div>
                     </div>
@@ -150,29 +150,125 @@ async function predictTraffic() {
                             <span class="material-symbols-outlined text-sm text-on-surface-variant">speed</span>
                             <span class="text-xs font-medium text-on-surface-variant">Average Speed</span>
                         </div>
-                        <span class="text-xs font-bold text-on-surface">${data.speed} km/h</span>
+                        <span class="text-xs font-bold text-on-surface">${data.speed || 'N/A'} km/h</span>
                     </div>
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-3">
                             <span class="material-symbols-outlined text-sm text-on-surface-variant">history</span>
                             <span class="text-xs font-medium text-on-surface-variant">Normal Duration</span>
                         </div>
-                        <span class="text-xs font-bold text-on-surface">${data.normal_duration} mins</span>
+                        <span class="text-xs font-bold text-on-surface">${data.normal_duration || 'N/A'} mins</span>
                     </div>
                     <div class="flex items-center justify-between">
                         <div class="flex items-center gap-3">
                             <span class="material-symbols-outlined text-sm text-on-surface-variant">verified</span>
-                            <span class="text-xs font-medium text-on-surface-variant">Confidence Score</span>
+                            <span class="text-xs font-medium text-on-surface-variant">ML Confidence</span>
                         </div>
                         <div class="flex items-center gap-1">
-                            <span class="text-xs font-bold text-primary">High</span>
+                            <span class="text-xs font-bold text-primary">${data.confidence_score}%</span>
                             <div class="flex gap-0.5">
-                                <div class="w-1 h-3 rounded-full bg-primary"></div>
-                                <div class="w-1 h-3 rounded-full bg-primary"></div>
-                                <div class="w-1 h-3 rounded-full bg-primary"></div>
-                                <div class="w-1 h-3 rounded-full bg-primary/20"></div>
+                                <div class="w-1 h-3 rounded-full ${data.confidence_score > 70 ? 'bg-primary' : 'bg-primary/20'}"></div>
+                                <div class="w-1 h-3 rounded-full ${data.confidence_score > 85 ? 'bg-primary' : 'bg-primary/20'}"></div>
+                                <div class="w-1 h-3 rounded-full ${data.confidence_score > 90 ? 'bg-primary' : 'bg-primary/20'}"></div>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- NEW: Google vs AI Comparison -->
+                <div class="mt-6 pt-6 border-t border-outline-variant/20">
+                    <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-4">Hybrid AI Analysis</h4>
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center bg-surface-container-lowest p-3 rounded-xl border border-outline-variant/10">
+                            <div>
+                                <p class="text-[10px] text-on-surface-variant uppercase font-bold">Google Maps ETA</p>
+                                <p class="text-sm font-bold">${data.google_traffic_duration} mins</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[10px] text-on-surface-variant uppercase font-bold">AI Adjustment</p>
+                                <p class="text-sm font-bold ${data.ai_adjustment > 0 ? 'text-error' : (data.ai_adjustment < 0 ? 'text-green-600' : 'text-on-surface')}">
+                                    ${data.ai_adjustment > 0 ? '+' : ''}${data.ai_adjustment} mins
+                                </p>
+                            </div>
+                        </div>
+                        ${data.adjustment_reasons && data.adjustment_reasons.length > 0 ? `
+                        <div class="px-3">
+                            <ul class="space-y-1">
+                                ${data.adjustment_reasons.map(reason => `
+                                    <li class="flex items-center gap-2 text-[11px] text-on-surface-variant">
+                                        <span class="w-1 h-1 rounded-full bg-primary/40"></span>
+                                        ${reason}
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                        ` : ''}
+                        <div class="bg-primary/5 p-4 rounded-2xl border border-primary/10 flex justify-between items-center">
+                            <span class="text-xs font-bold text-primary uppercase tracking-wider">Final Smart ETA</span>
+                            <span class="text-xl font-black text-primary">${data.final_smart_eta} mins</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NEW: Traffic Pressure & Risk -->
+                <div class="mt-6 pt-6 border-t border-outline-variant/20 grid grid-cols-2 gap-4">
+                    <div>
+                        <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2">Pressure Score</h4>
+                        <div class="flex items-center gap-2">
+                            <div class="flex-1 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
+                                <div class="h-full ${data.traffic_pressure_score > 70 ? 'bg-red-500' : (data.traffic_pressure_score > 35 ? 'bg-yellow-500' : 'bg-green-500')}" style="width: ${data.traffic_pressure_score}%"></div>
+                            </div>
+                            <span class="text-xs font-bold">${data.traffic_pressure_score}/100</span>
+                        </div>
+                        <p class="text-[10px] text-on-surface-variant mt-1">${data.pressure_level} Pressure Environment</p>
+                    </div>
+                    <div>
+                        <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2">Route Risk</h4>
+                        <div class="flex items-center gap-1.5">
+                            <span class="material-symbols-outlined text-sm ${data.risk_analysis.level === 'High' ? 'text-red-500' : (data.risk_analysis.level === 'Medium' ? 'text-yellow-500' : 'text-green-500')}">
+                                ${data.risk_analysis.level === 'High' ? 'warning' : (data.risk_analysis.level === 'Medium' ? 'info' : 'check_circle')}
+                            </span>
+                            <span class="text-xs font-bold text-on-surface">${data.risk_analysis.level} Risk</span>
+                        </div>
+                        <p class="text-[10px] text-on-surface-variant mt-1">Stability: ${data.risk_analysis.stability}</p>
+                    </div>
+                </div>
+
+                <!-- NEW: Contextual Analysis -->
+                <div class="mt-6 pt-6 border-t border-outline-variant/20">
+                    <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-4">Context Intelligence</h4>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="p-2 bg-surface-container-lowest rounded-xl border border-outline-variant/10 flex flex-col items-center text-center">
+                            <span class="material-symbols-outlined text-sm text-primary mb-1">cloud</span>
+                            <span class="text-[9px] text-on-surface-variant uppercase font-bold">Weather</span>
+                            <span class="text-[10px] font-bold">${data.context_analysis.weather}</span>
+                        </div>
+                        <div class="p-2 bg-surface-container-lowest rounded-xl border border-outline-variant/10 flex flex-col items-center text-center">
+                            <span class="material-symbols-outlined text-sm text-primary mb-1">school</span>
+                            <span class="text-[9px] text-on-surface-variant uppercase font-bold">School</span>
+                            <span class="text-[10px] font-bold">${data.context_analysis.school_rush === 'Yes' ? 'Rush Hour' : 'No Rush'}</span>
+                        </div>
+                        <div class="p-2 bg-surface-container-lowest rounded-xl border border-outline-variant/10 flex flex-col items-center text-center">
+                            <span class="material-symbols-outlined text-sm text-primary mb-1">work</span>
+                            <span class="text-[9px] text-on-surface-variant uppercase font-bold">Office</span>
+                            <span class="text-[10px] font-bold">${data.context_analysis.office_rush === 'Yes' ? 'Rush Hour' : 'No Rush'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NEW: AI Reasoning Section -->
+                <div class="mt-6 p-4 bg-surface-container-high rounded-2xl border border-outline-variant/20">
+                    <h4 class="text-xs font-bold text-on-surface mb-3 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-sm">psychology</span>
+                        Why this prediction?
+                    </h4>
+                    <div class="grid grid-cols-1 gap-2">
+                        ${data.ai_reasoning.map(reason => `
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs">${reason.startsWith('✓') ? '✅' : '⚠️'}</span>
+                                <span class="text-xs text-on-surface-variant">${reason.substring(2)}</span>
+                            </div>
+                        `).join('')}
                     </div>
                 </div>
             </div>
@@ -249,7 +345,7 @@ async function loadChatThreads() {
 
         if (data.history && data.history.length > 0) {
             historyList.innerHTML = data.history.map(thread => `
-                <div onclick="loadThread('${thread.id}')" 
+                <div onclick="loadThread('${thread.id}')"
                      class="group flex items-center gap-3 px-4 py-3 rounded-lg cursor-pointer transition-all hover:bg-slate-200 dark:hover:bg-slate-800 ${currentThreadId === thread.id ? 'bg-slate-200 dark:bg-slate-800' : ''} content-fade-in">
                     <span class="material-symbols-outlined text-lg text-slate-400 group-hover:text-primary transition-colors">chat_bubble</span>
                     <div class="flex-1 min-w-0">
@@ -269,7 +365,7 @@ async function loadChatThreads() {
 async function loadThread(threadId) {
     currentThreadId = threadId;
     document.getElementById("chatbox").innerHTML = "";
-    
+
     // Update active state in sidebar
     loadChatThreads();
 
@@ -296,10 +392,10 @@ function startNewAnalysis() {
     document.getElementById("destination").value = "";
     document.getElementById("pred_time").value = "";
     document.getElementById("pred_day").value = "now";
-    
+
     // Update sidebar UI
     loadChatThreads();
-    
+
     displayMessage("New analysis started. Where would you like to go?", "bot");
 }
 
@@ -307,7 +403,7 @@ function constructBotReply(trafficData, timestamp) {
     let interpretation = "";
     let suggestion = "";
     let statusEmoji = "";
-    
+
     if (trafficData.congestion === 'Low') {
         interpretation = "You're good to go! The roads are looking clear.";
         suggestion = "It's a great time to start your journey. Drive safely!";
@@ -362,14 +458,14 @@ function constructBotReply(trafficData, timestamp) {
                     <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
                         <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Travel Time</p>
                         <div class="flex items-baseline gap-1">
-                            <span class="text-3xl font-black text-primary">${trafficData.travel_time}</span>
+                            <span class="text-3xl font-black text-primary">${trafficData.travel_time || 'N/A'}</span>
                             <span class="text-sm font-bold text-primary/60">mins</span>
                         </div>
                     </div>
                     <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/10">
                         <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-1">Distance</p>
                         <div class="flex items-baseline gap-1">
-                            <span class="text-3xl font-black text-on-surface">${trafficData.distance}</span>
+                            <span class="text-3xl font-black text-on-surface">${trafficData.distance || 'N/A'}</span>
                             <span class="text-sm font-bold text-on-surface-variant">km</span>
                         </div>
                     </div>
@@ -380,6 +476,24 @@ function constructBotReply(trafficData, timestamp) {
                     <div>
                         <p class="font-bold text-on-surface leading-tight mb-1">${interpretation}</p>
                         <p class="text-sm text-on-surface-variant leading-relaxed">${suggestion}</p>
+                    </div>
+                </div>
+
+                <!-- Technical Details Accordion-like list -->
+                <div class="space-y-3 pt-4 border-t border-outline-variant/20 mt-4">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-sm text-on-surface-variant">speed</span>
+                            <span class="text-xs font-medium text-on-surface-variant">Average Speed</span>
+                        </div>
+                        <span class="text-xs font-bold text-on-surface">${trafficData.speed || 'N/A'} km/h</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-sm text-on-surface-variant">history</span>
+                            <span class="text-xs font-medium text-on-surface-variant">Normal Duration</span>
+                        </div>
+                        <span class="text-xs font-bold text-on-surface">${trafficData.normal_duration || 'N/A'} mins</span>
                     </div>
                 </div>
             </div>
@@ -445,9 +559,9 @@ function getCSRFToken() {
 let mediaRecorder = null;
 let audioChunks   = [];
 let isRecording   = false;
- 
+
 const micBtn = document.querySelector('[data-icon="mic"]');
- 
+
 if (micBtn) {
     micBtn.addEventListener("click", () => {
         if (!isRecording) {
@@ -457,44 +571,44 @@ if (micBtn) {
         }
     });
 }
- 
+
 async function startRecording() {
     try {
         // Request microphone access from the browser
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
- 
+
         audioChunks = [];
         mediaRecorder = new MediaRecorder(stream);
- 
+
         // Collect audio data as it comes in
         mediaRecorder.ondataavailable = (event) => {
             if (event.data.size > 0) {
                 audioChunks.push(event.data);
             }
         };
- 
+
         // When recording stops, send audio to Django
         mediaRecorder.onstop = async () => {
             const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
             await sendAudioToDjango(audioBlob);
- 
+
             // Stop all microphone tracks to release mic
             stream.getTracks().forEach(track => track.stop());
         };
- 
+
         mediaRecorder.start();
         isRecording = true;
- 
+
         // Visual feedback — show the button is recording
         micBtn.style.color = "red";
         micBtn.title = "Click to stop recording";
- 
+
     } catch (err) {
         alert("Microphone access denied. Please allow microphone access.");
         console.error("Mic error:", err);
     }
 }
- 
+
 function stopRecording() {
     if (mediaRecorder && mediaRecorder.state !== "inactive") {
         mediaRecorder.stop();
@@ -503,35 +617,35 @@ function stopRecording() {
     micBtn.style.color = "";
     micBtn.title = "Click to start recording";
 }
- 
+
 async function sendAudioToDjango(audioBlob) {
     // Show a temporary "transcribing..." message
     displayMessage("🎙 Transcribing your voice...", "bot");
- 
+
     const formData = new FormData();
     formData.append("audio", audioBlob, "recording.webm");
- 
+
     try {
         const response = await fetch("/transcribe/", {
             method: "POST",
             headers: { "X-CSRFToken": getCookie("csrftoken") },
             body: formData
         });
- 
+
         const data = await response.json();
- 
+
         if (data.error) {
             displayMessage("Could not understand audio. Please try again.", "bot");
             return;
         }
- 
+
         // Put the transcribed text into the chat input
         const input = document.getElementById("origin");
         if (input) {
             input.value = data.text;
             displayMessage(`You said: "${data.text}"`, "user");
         }
- 
+
     } catch (err) {
         console.error("Audio send error:", err);
         displayMessage("Audio upload failed. Please type instead.", "bot");

@@ -2,12 +2,13 @@ import requests
 import time
 from datetime import datetime
 from django.conf import settings
+from django.db import close_old_connections
 from .logger import logger
 from .weather_service import WeatherService
 from .holiday_service import HolidayService
 from .school_service import SchoolService
 from .event_detector import EventDetector
-from .csv_manager import CSVManager
+from .record_store import TrafficRecordStore
 from .congestion import CongestionIntelligence
 from .pressure_score import PressureScoreCalculator
 from .feature_engineering import FeatureEngineer
@@ -18,14 +19,18 @@ class TrafficCollector:
         self.holiday_service = HolidayService()
         self.school_service = SchoolService()
         self.event_detector = EventDetector()
-        self.csv_manager = CSVManager()
+        self.record_store = TrafficRecordStore()
         self.pressure_calculator = PressureScoreCalculator()
-        self.api_key = getattr(settings, 'GOOGLE_CLIENT_SECRET', None)
+        self.api_key = getattr(settings, 'GOOGLE_MAPS_API_KEY', None)
         self.routes = getattr(settings, 'TRAFFIC_ROUTES', [])
 
     def collect_all_routes(self):
         logger.info("Starting collection for all routes...")
-        
+
+        # This runs in a long-lived background (APScheduler) thread; drop any
+        # stale/timed-out DB connections before doing ORM work this cycle.
+        close_old_connections()
+
         # Get common contextual data once per collection cycle
         now = datetime.now()
         weather_data = self.weather_service.get_current_weather()
@@ -70,9 +75,9 @@ class TrafficCollector:
         
         # Add ML features (optional but good for future)
         # record = FeatureEngineer.add_ml_features(record)
-        
-        # Save to CSV
-        success = self.csv_manager.append_record(record)
+
+        # Persist to the durable database store
+        success = self.record_store.append_record(record)
         if success:
             logger.info(f"Successfully recorded traffic for {origin} to {destination}")
 

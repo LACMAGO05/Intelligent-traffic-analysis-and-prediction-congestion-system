@@ -12,7 +12,7 @@ def get_realtime_traffic(origin, destination, departure_time="now"):
     Fetches traffic data from Google Directions API to provide segment-specific delays.
     Can be for 'now' or a specific timestamp.
     """
-    api_key = getattr(settings, 'GOOGLE_CLIENT_SECRET', None)
+    api_key = getattr(settings, 'GOOGLE_MAPS_API_KEY', None)
     if not api_key:
         return {"error": "Google API Key not configured"}
 
