@@ -22,8 +22,8 @@ from django.contrib.auth.models import User, Group
 from TrafficApp.utils import generate_otp
 from TrafficApp.views import sanitize_location
 from TrafficApp.models import ChatThread, PredictionLog, TrafficRecord
-from traffic_collector.congestion import CongestionIntelligence
-from traffic_collector.pressure_score import PressureScoreCalculator
+from traffic_context.congestion import CongestionIntelligence
+from traffic_context.pressure_score import PressureScoreCalculator
 from traffic_collector.record_store import TrafficRecordStore
 
 
@@ -317,13 +317,16 @@ class ModelCacheTests(TestCase):
     def test_artifacts_loaded_once_across_instances(self):
         from TrafficApp.services import model_service
         model_service._load_artifacts.cache_clear()
+        schema = {"route_vocab": [], "feature_columns": [], "threshold": 0.5}
         with patch("TrafficApp.services.model_service.joblib.load", return_value="DUMMY") as mock_load, \
+             patch("TrafficApp.services.model_service.mlf.load_schema", return_value=schema) as mock_schema, \
              patch("TrafficApp.services.model_service.os.path.exists", return_value=True):
             model_service.ModelService()
             model_service.ModelService()
             model_service.ModelService()
-        # Two artifacts (model + encoder) loaded a single time despite 3 instances.
-        self.assertEqual(mock_load.call_count, 2)
+        # Model (joblib) and schema each loaded once despite 3 instances.
+        self.assertEqual(mock_load.call_count, 1)
+        self.assertEqual(mock_schema.call_count, 1)
         model_service._load_artifacts.cache_clear()
 
 
@@ -335,7 +338,7 @@ class WeatherCacheTests(TestCase):
 
     @override_settings(OPENWEATHER_API_KEY="test-key")
     def test_weather_is_cached(self):
-        from traffic_collector import weather_service
+        from traffic_context import weather_service
 
         class _Resp:
             status_code = 200
@@ -360,12 +363,138 @@ class HolidayCacheTests(TestCase):
 
     def test_holiday_lookup_is_cached(self):
         from datetime import date
-        from traffic_collector.holiday_service import HolidayService
+        from traffic_context.holiday_service import HolidayService
         svc = HolidayService()
         d = date(2026, 1, 1)
         result = svc.is_public_holiday(d)
         self.assertIn(result, (0, 1))
         self.assertEqual(cache.get(f"holiday:CM:{d.isoformat()}"), result)
+
+
+class DirectionsClientTests(TestCase):
+    """Phase 4 (L4) — one Google Directions client shared by all callers."""
+
+    def test_clean_location_adds_region(self):
+        from traffic_context.directions_client import clean_location
+        self.assertEqual(clean_location("Molyko"), "Molyko, Buea, Cameroon")
+        self.assertEqual(clean_location("Mile 17, Buea"), "Mile 17, Buea")
+
+    def test_fetch_requires_api_key(self):
+        from traffic_context.directions_client import DirectionsClient, DirectionsError
+        with self.assertRaises(DirectionsError):
+            DirectionsClient(api_key="").fetch("A", "B")
+
+    def test_fetch_raises_on_non_ok_status(self):
+        from traffic_context import directions_client as dc
+
+        class _Resp:
+            def json(self):
+                return {"status": "ZERO_RESULTS"}
+
+        with patch.object(dc.requests, "get", return_value=_Resp()):
+            with self.assertRaises(dc.DirectionsError):
+                dc.DirectionsClient(api_key="k").fetch("A", "B")
+
+    def test_google_service_delegates_to_client(self):
+        from TrafficApp.services.google_maps_service import GoogleMapsService
+        fake = {"routes": [{"summary": "R1", "overview_polyline": {"points": "xyz"},
+                "legs": [{"distance": {"value": 3200}, "duration": {"value": 600},
+                          "duration_in_traffic": {"value": 900}, "steps": []}]}]}
+        svc = GoogleMapsService()
+        with patch.object(svc.client, "fetch", return_value=("O", "D", fake)):
+            out = svc.get_route_details("Molyko", "Mile 17")
+        self.assertEqual(out["status"], "success")
+        self.assertEqual(out["primary_route"]["distance"], 3.2)
+        self.assertEqual(out["primary_route"]["traffic_duration"], 15.0)
+
+    def test_collector_fetch_delegates_to_client(self):
+        from traffic_collector.collector import TrafficCollector
+        fake = {"routes": [{"legs": [{"distance": {"value": 3000},
+                "duration": {"value": 600}, "duration_in_traffic": {"value": 1200}}]}]}
+        collector = TrafficCollector()
+        with patch.object(collector.directions, "fetch", return_value=("O", "D", fake)):
+            out = collector.fetch_google_traffic("Molyko", "Mile 17")
+        self.assertEqual(out["distance_km"], 3.0)
+        self.assertEqual(out["travel_time_mins"], 20.0)
+        self.assertIn(out["congestion"], ("Low", "Medium", "High"))
+
+
+# ─────────────────────────── Phase 5: ML pipeline ────────────────────────────
+
+class MLFeatureTests(TestCase):
+    """5.1 — shared feature engineering for train + serve."""
+
+    def test_binary_target_mapping(self):
+        import pandas as pd
+        from traffic_context import ml_features as mlf
+        s = pd.Series(["Low", "Medium", "High", "Low"])
+        self.assertEqual(list(mlf.binary_target(s)), [0, 1, 1, 0])
+
+    def test_feature_row_matches_schema_columns(self):
+        from traffic_context import ml_features as mlf
+        vocab = ["Mile 17 to Malingo", "A to B"]
+        cols = mlf.feature_columns(vocab)
+        feat = mlf.row_to_features({
+            "distance_km": 3, "hour": 8, "day_of_week": 1,
+            "weather_condition": "Rain", "rainfall_status": "Rain",
+            "route": "Mile 17 to Malingo", "event_severity": "High",
+        }, vocab)
+        self.assertEqual(set(feat.keys()), set(cols))
+        self.assertEqual(feat["is_morning_rush"], 1)
+        self.assertEqual(feat["weather_Rain"], 1)
+        self.assertEqual(feat["rainfall_Rain"], 1)
+        self.assertEqual(feat["event_severity"], 2)
+        self.assertEqual(feat[mlf.route_col("Mile 17 to Malingo")], 1)
+
+    def test_clean_drops_corrupt_rows(self):
+        import pandas as pd
+        from traffic_context import ml_features as mlf
+        base = {"timestamp": "2026-05-07 08:00:00", "route": "A to B", "distance_km": 3,
+                "day_of_week": 1, "congestion": "Low", "weather_condition": "Clouds",
+                "rainfall_status": "No Rain", "holiday_indicator": 0, "school_holiday_indicator": 0,
+                "school_hours_indicator": 1, "working_hours_indicator": 1,
+                "office_rush_hour_indicator": 0, "event_indicator": 0, "event_severity": "Low"}
+        df = pd.DataFrame([{**base, "hour": 8}, {**base, "hour": "Monday"}])  # 2nd row corrupt
+        self.assertEqual(len(mlf.clean_training_frame(df)), 1)
+
+
+class ModelServingTests(TestCase):
+    """5.1/5.2 — serving runs against the promoted schema (no train/serve skew)."""
+
+    def test_predict_runs_with_promoted_schema(self):
+        from TrafficApp.services import model_service
+        model_service._load_artifacts.cache_clear()
+        ms = model_service.ModelService()
+        if not ms.model or not ms.schema:
+            self.skipTest("No promoted model/schema present")
+        out = ms.predict({
+            "distance_km": 3.2, "hour": 8, "day_of_week": 1, "holiday_indicator": 0,
+            "school_holiday_indicator": 0, "school_hours_indicator": 1,
+            "working_hours_indicator": 1, "office_rush_hour_indicator": 1,
+            "event_indicator": 0, "event_severity": 0, "weather_condition": "Clouds",
+            "rainfall_status": "No Rain", "route": "Mile 17 to Malingo",
+        })
+        self.assertNotIn("error", out)
+        self.assertIn(out["congestion_level"], ("Low", "Medium"))
+        model_service._load_artifacts.cache_clear()
+
+
+class HybridDisplayTests(TestCase):
+    """5.x — final congestion shows the more severe of model vs Google."""
+
+    def test_google_high_escalates_display(self):
+        from TrafficApp.services.hybrid_prediction_service import HybridPredictionService
+        svc = HybridPredictionService()
+        google = {"origin": "O", "destination": "D", "is_prediction": False, "alternatives": [],
+                  "departure_time": 0,
+                  "primary_route": {"summary": "R", "distance": 5, "normal_duration": 10,
+                                    "traffic_duration": 20, "polyline": "p", "segments_delay": []}}
+        with patch.object(svc.google_maps, "get_route_details", return_value=google), \
+             patch.object(svc.model_service, "predict",
+                          return_value={"congestion_level": "Low", "confidence": 90, "probabilities": {}}):
+            out = svc.get_hybrid_prediction("O", "D", "now")
+        # Google ratio 20/10 = 2.0 -> High; model says Low -> display escalates to High.
+        self.assertEqual(out["congestion"], "High")
 
 
 class BackgroundTaskTests(TestCase):

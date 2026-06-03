@@ -3,14 +3,14 @@ from datetime import datetime
 from .google_maps_service import GoogleMapsService
 from .model_service import ModelService
 
-# Reuse existing traffic_collector modules
-from traffic_collector.weather_service import WeatherService
-from traffic_collector.holiday_service import HolidayService
-from traffic_collector.school_service import SchoolService
-from traffic_collector.event_detector import EventDetector
-from traffic_collector.pressure_score import PressureScoreCalculator
-from traffic_collector.congestion import CongestionIntelligence
-from traffic_collector.feature_engineering import FeatureEngineer
+# Shared context providers (neutral package, also used by the collector)
+from traffic_context.weather_service import WeatherService
+from traffic_context.holiday_service import HolidayService
+from traffic_context.school_service import SchoolService
+from traffic_context.event_detector import EventDetector
+from traffic_context.pressure_score import PressureScoreCalculator
+from traffic_context.congestion import CongestionIntelligence
+from traffic_context.feature_engineering import FeatureEngineer
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +55,10 @@ class HybridPredictionService:
 
         # 3. Enrich route data with context
         primary_route = google_data['primary_route']
-        features = self._prepare_ml_features(primary_route, context, target_dt)
+        # Build the route string in the same "Origin to Destination" form the model
+        # was trained on, so the route one-hot can match the known vocabulary.
+        route_name = f"{origin} to {destination}"
+        features = self._prepare_ml_features(primary_route, context, target_dt, route_name)
 
         # 4. Get LightGBM model prediction
         model_prediction = self.model_service.predict(features)
@@ -85,7 +88,7 @@ class HybridPredictionService:
         }
         return context
 
-    def _prepare_ml_features(self, route, context, dt):
+    def _prepare_ml_features(self, route, context, dt, route_name=None):
         """Engineers features for the LightGBM model."""
         features = {
             "distance_km": route['distance'],
@@ -100,7 +103,7 @@ class HybridPredictionService:
             "event_severity": 1 if context['event_severity'] == 'Medium' else (2 if context['event_severity'] == 'High' else 0),
             "weather_condition": context['weather_condition'],
             "rainfall_status": context['rainfall_status'],
-            "route": route['summary']
+            "route": route_name or route['summary']
         }
         # Add pressure score for internal analysis (though model might not use it directly if it wasn't in training)
         # Re-calculate congestion for pressure score input
@@ -126,14 +129,19 @@ class HybridPredictionService:
         model_confidence = model_pred.get('confidence', 0)
         probabilities = model_pred.get('probabilities', {})
 
+        # The model is binary (Low/Medium); "High" is surfaced from Google's live
+        # traffic. Display the more severe of the two so High is never lost.
+        _SEV = {"Low": 0, "Medium": 1, "High": 2}
+        display_congestion = max(model_congestion, google_congestion, key=lambda c: _SEV.get(c, 0))
+
         # 3. Intelligent ETA Adjustment Layer
         # This is the "Smart ETA Adjustment Engine"
         adjusted_duration = google_duration
         delay_adjustment = 0
         adjustment_reasons = []
 
-        # Logic A: Model says it's worse than Google thinks
-        if model_congestion == "High" and google_congestion != "High" and model_confidence > 65:
+        # Logic A: Model flags congestion that Google currently underestimates
+        if model_congestion in ("Medium", "High") and google_congestion == "Low" and model_confidence > 65:
             extra = (primary['normal_duration'] * 0.25)
             delay_adjustment += extra
             adjustment_reasons.append(f"AI Model detected high congestion patterns ({model_confidence}% confidence)")
@@ -171,10 +179,10 @@ class HybridPredictionService:
         # 4. Route Risk Analysis
         risk_level = "Low"
         stability = "Stable"
-        if pressure_score > 60 or model_congestion == "High":
+        if pressure_score > 60 or display_congestion == "High":
             risk_level = "High"
             stability = "Volatile"
-        elif pressure_score > 35 or model_congestion == "Medium":
+        elif pressure_score > 35 or display_congestion == "Medium":
             risk_level = "Medium"
             stability = "Fluctuating"
 
@@ -224,7 +232,7 @@ class HybridPredictionService:
             "final_smart_eta": final_smart_eta,
             "adjustment_reasons": adjustment_reasons,
             "speed": avg_speed,
-            "congestion": model_congestion,
+            "congestion": display_congestion,
             "confidence_score": model_confidence,
             "probabilities": probabilities,
             "traffic_pressure_score": pressure_score,

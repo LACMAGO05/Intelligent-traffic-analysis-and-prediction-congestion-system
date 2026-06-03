@@ -562,94 +562,16 @@ let isRecording   = false;
 
 const micBtn = document.querySelector('[data-icon="mic"]');
 
+// Voice input is intentionally disabled: there is no /transcribe/ backend
+// endpoint, so the previous recording flow always failed with a 404. The mic
+// button now shows a friendly notice instead of attempting a broken upload.
 if (micBtn) {
+    micBtn.title = "Voice input coming soon";
     micBtn.addEventListener("click", () => {
-        if (!isRecording) {
-            startRecording();
-        } else {
-            stopRecording();
+        if (typeof displayMessage === "function") {
+            displayMessage("🎙 Voice input isn't available yet — please type your route.", "bot");
         }
     });
-}
-
-async function startRecording() {
-    try {
-        // Request microphone access from the browser
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-        audioChunks = [];
-        mediaRecorder = new MediaRecorder(stream);
-
-        // Collect audio data as it comes in
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                audioChunks.push(event.data);
-            }
-        };
-
-        // When recording stops, send audio to Django
-        mediaRecorder.onstop = async () => {
-            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-            await sendAudioToDjango(audioBlob);
-
-            // Stop all microphone tracks to release mic
-            stream.getTracks().forEach(track => track.stop());
-        };
-
-        mediaRecorder.start();
-        isRecording = true;
-
-        // Visual feedback — show the button is recording
-        micBtn.style.color = "red";
-        micBtn.title = "Click to stop recording";
-
-    } catch (err) {
-        alert("Microphone access denied. Please allow microphone access.");
-        console.error("Mic error:", err);
-    }
-}
-
-function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state !== "inactive") {
-        mediaRecorder.stop();
-    }
-    isRecording = false;
-    micBtn.style.color = "";
-    micBtn.title = "Click to start recording";
-}
-
-async function sendAudioToDjango(audioBlob) {
-    // Show a temporary "transcribing..." message
-    displayMessage("🎙 Transcribing your voice...", "bot");
-
-    const formData = new FormData();
-    formData.append("audio", audioBlob, "recording.webm");
-
-    try {
-        const response = await fetch("/transcribe/", {
-            method: "POST",
-            headers: { "X-CSRFToken": getCookie("csrftoken") },
-            body: formData
-        });
-
-        const data = await response.json();
-
-        if (data.error) {
-            displayMessage("Could not understand audio. Please try again.", "bot");
-            return;
-        }
-
-        // Put the transcribed text into the chat input
-        const input = document.getElementById("origin");
-        if (input) {
-            input.value = data.text;
-            displayMessage(`You said: "${data.text}"`, "user");
-        }
-
-    } catch (err) {
-        console.error("Audio send error:", err);
-        displayMessage("Audio upload failed. Please type instead.", "bot");
-    }
 }
 
 // View password
@@ -703,40 +625,8 @@ if (typeof google !== 'undefined' && google.maps && google.maps.event) {
 }
 
 // ── Alerts System ──────────────────────────────────────────
-async function fetchAlerts() {
-    const alertsList = document.getElementById("alerts-list");
-    if (!alertsList) return;
+// The gridlock-alerts feature is not enabled: there is no /alerts/ endpoint
+// (it's commented out in urls.py), so the previous 2-minute poll only produced
+// 404s. Polling removed until the backend endpoint is implemented.
 
-    // Show skeleton while loading if list is empty
-    if (alertsList.innerHTML.trim() === '' || alertsList.querySelector('p')) {
-        const skeletonCard = document.getElementById('skeleton-card-template');
-        if (skeletonCard) {
-            alertsList.innerHTML = skeletonCard.innerHTML;
-        }
-    }
-
-    try {
-        const response = await fetch("/alerts/");
-        const data = await response.json();
-
-        if (data.alerts && data.alerts.length > 0) {
-            alertsList.innerHTML = data.alerts.map(alert => `
-                <div class="p-3 bg-error-container/20 border-l-4 border-error rounded-r-xl">
-                    <p class="text-xs font-bold text-on-error-container">${alert.route}</p>
-                    <p class="text-[10px] text-error font-semibold">Gridlock: ${alert.travel_time} mins</p>
-                    <p class="text-[9px] text-on-surface-variant/60 mt-1">${alert.timestamp}</p>
-                </div>
-            `).join("");
-        } else {
-            alertsList.innerHTML = `<p class="text-xs text-green-600 font-medium">All clear! No gridlocks detected in Buea.</p>`;
-        }
-    } catch (err) {
-        console.error("Alerts error:", err);
-    }
-}
-
-// Fetch alerts every 2 minutes
-setInterval(fetchAlerts, 120000);
-// Initial fetch
-fetchAlerts();
 loadChatThreads();

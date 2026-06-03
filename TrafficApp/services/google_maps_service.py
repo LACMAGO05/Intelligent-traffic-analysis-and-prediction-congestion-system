@@ -1,6 +1,5 @@
-import requests
 import re
-from django.conf import settings
+from traffic_context.directions_client import DirectionsClient, DirectionsError, parse_leg_metrics
 
 class GoogleMapsService:
     """
@@ -9,19 +8,8 @@ class GoogleMapsService:
     """
 
     def __init__(self):
-        # API Key is retrieved from Django settings (kept in environment variables)
-        self.api_key = getattr(settings, 'GOOGLE_MAPS_API_KEY', None)
-        self.base_url = "https://maps.googleapis.com/maps/api/directions/json"
-
-    def _clean_location(self, location):
-        """
-        Ensures the location has regional context (Buea, Cameroon) if not already present.
-        This improves the accuracy of the Google Maps search.
-        """
-        location = location.strip()
-        if "buea" not in location.lower():
-            return f"{location}, Buea, Cameroon"
-        return location
+        # Single shared Directions client (handles the API key + HTTP call).
+        self.client = DirectionsClient()
 
     def get_route_details(self, origin, destination, departure_time="now"):
         """
@@ -35,43 +23,20 @@ class GoogleMapsService:
         Returns:
             dict: Structured JSON with route details or error message
         """
-        if not self.api_key:
-            return {"error": "Google API Key not configured"}
-
-        origin_clean = self._clean_location(origin)
-        dest_clean = self._clean_location(destination)
-
-        # Parameters for the Directions API
-        # alternatives=True allows us to get more than one route option
-        params = {
-            "origin": origin_clean,
-            "destination": dest_clean,
-            "departure_time": departure_time,
-            "traffic_model": "best_guess",
-            "alternatives": True,
-            "key": self.api_key
-        }
+        try:
+            origin_clean, dest_clean, data = self.client.fetch(
+                origin, destination, departure_time, alternatives=True
+            )
+        except DirectionsError as e:
+            return {"error": str(e)}
 
         try:
-            # Make the request to Google Maps
-            response = requests.get(self.base_url, params=params, timeout=10)
-            data = response.json()
-
-            # Check if the API returned a successful status
-            if data['status'] != 'OK':
-                return {"error": f"Google Maps API Error: {data['status']}"}
-
             routes = []
             for idx, route in enumerate(data['routes']):
                 leg = route['legs'][0]
 
-                # Extract basic metrics
-                distance_km = leg['distance']['value'] / 1000
-                duration_min = leg['duration']['value'] / 60
-
-                # duration_in_traffic is only available for 'now' or future departure_time requests
-                # If not present, fallback to normal duration
-                duration_traffic_min = leg.get('duration_in_traffic', leg['duration'])['value'] / 60
+                # Extract basic metrics (distance_km, normal/traffic durations)
+                distance_km, duration_min, duration_traffic_min = parse_leg_metrics(leg)
 
                 # Analyze steps for specific segment delays
                 segments_delay = []

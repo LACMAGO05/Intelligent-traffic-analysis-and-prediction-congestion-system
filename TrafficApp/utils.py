@@ -1,8 +1,7 @@
 import random
-import requests
 from django.utils import timezone
 import datetime
-from django.conf import settings
+from traffic_context.directions_client import DirectionsClient, DirectionsError, parse_leg_metrics
 
 def generate_otp():
     return str(random.randint(100000, 999999))
@@ -12,43 +11,16 @@ def get_realtime_traffic(origin, destination, departure_time="now"):
     Fetches traffic data from Google Directions API to provide segment-specific delays.
     Can be for 'now' or a specific timestamp.
     """
-    api_key = getattr(settings, 'GOOGLE_MAPS_API_KEY', None)
-    if not api_key:
-        return {"error": "Google API Key not configured"}
-
-    # Ensure regional context (Buea, Cameroon)
-    def clean_loc(loc):
-        loc = loc.strip()
-        if "buea" not in loc.lower():
-            return f"{loc}, Buea, Cameroon"
-        return loc
-
-    origin_clean = clean_loc(origin)
-    dest_clean = clean_loc(destination)
-
-    # Use Directions API instead of Distance Matrix for segment details
-    url = "https://maps.googleapis.com/maps/api/directions/json"
-    params = {
-        "origin": origin_clean,
-        "destination": dest_clean,
-        "departure_time": departure_time,
-        "traffic_model": "best_guess",
-        "key": api_key
-    }
+    try:
+        origin_clean, dest_clean, data = DirectionsClient().fetch(origin, destination, departure_time)
+    except DirectionsError as e:
+        return {"error": str(e)}
 
     try:
-        response = requests.get(url, params=params)
-        data = response.json()
-
-        if data['status'] != 'OK':
-            return {"error": f"API Error: {data['status']}"}
-
         route = data['routes'][0]
         leg = route['legs'][0]
-        
-        duration_km = leg['distance']['value'] / 1000
-        duration_min = leg['duration']['value'] / 60
-        duration_traffic_min = leg.get('duration_in_traffic', leg['duration'])['value'] / 60
+
+        duration_km, duration_min, duration_traffic_min = parse_leg_metrics(leg)
 
         # Segment-specific delay identification
         segments_delay = []

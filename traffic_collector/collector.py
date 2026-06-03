@@ -1,17 +1,17 @@
-import requests
 import time
 from datetime import datetime
 from django.conf import settings
 from django.db import close_old_connections
-from .logger import logger
-from .weather_service import WeatherService
-from .holiday_service import HolidayService
-from .school_service import SchoolService
-from .event_detector import EventDetector
+from traffic_context.logger import logger
+from traffic_context.weather_service import WeatherService
+from traffic_context.holiday_service import HolidayService
+from traffic_context.school_service import SchoolService
+from traffic_context.event_detector import EventDetector
+from traffic_context.congestion import CongestionIntelligence
+from traffic_context.pressure_score import PressureScoreCalculator
+from traffic_context.feature_engineering import FeatureEngineer
+from traffic_context.directions_client import DirectionsClient, DirectionsError, parse_leg_metrics
 from .record_store import TrafficRecordStore
-from .congestion import CongestionIntelligence
-from .pressure_score import PressureScoreCalculator
-from .feature_engineering import FeatureEngineer
 
 class TrafficCollector:
     def __init__(self):
@@ -21,6 +21,7 @@ class TrafficCollector:
         self.event_detector = EventDetector()
         self.record_store = TrafficRecordStore()
         self.pressure_calculator = PressureScoreCalculator()
+        self.directions = DirectionsClient(timeout=15)
         self.api_key = getattr(settings, 'GOOGLE_MAPS_API_KEY', None)
         self.routes = getattr(settings, 'TRAFFIC_ROUTES', [])
 
@@ -82,42 +83,20 @@ class TrafficCollector:
             logger.info(f"Successfully recorded traffic for {origin} to {destination}")
 
     def fetch_google_traffic(self, origin, destination):
-        if not self.api_key:
-            return {"error": "API Key missing"}
-
-        def clean_loc(loc):
-            loc = loc.strip()
-            if "buea" not in loc.lower():
-                return f"{loc}, Buea, Cameroon"
-            return loc
-
-        url = "https://maps.googleapis.com/maps/api/directions/json"
-        params = {
-            "origin": clean_loc(origin),
-            "destination": clean_loc(destination),
-            "departure_time": "now",
-            "traffic_model": "best_guess",
-            "key": self.api_key
-        }
+        try:
+            _, _, data = self.directions.fetch(origin, destination, departure_time="now")
+        except DirectionsError as e:
+            return {"error": str(e)}
 
         try:
-            response = requests.get(url, params=params, timeout=15)
-            data = response.json()
-
-            if data['status'] != 'OK':
-                return {"error": f"API Status: {data['status']}"}
-
             leg = data['routes'][0]['legs'][0]
-            
-            duration_km = leg['distance']['value'] / 1000
-            duration_min = leg['duration']['value'] / 60
-            duration_traffic_min = leg.get('duration_in_traffic', leg['duration'])['value'] / 60
-            
-            speed = duration_km / (duration_traffic_min / 60) if duration_traffic_min > 0 else 0
+            distance_km, duration_min, duration_traffic_min = parse_leg_metrics(leg)
+
+            speed = distance_km / (duration_traffic_min / 60) if duration_traffic_min > 0 else 0
             congestion = CongestionIntelligence.classify(duration_min, duration_traffic_min)
 
             return {
-                "distance_km": round(duration_km, 2),
+                "distance_km": round(distance_km, 2),
                 "travel_time_mins": round(duration_traffic_min, 2),
                 "speed_kmh": round(speed, 2),
                 "congestion": congestion

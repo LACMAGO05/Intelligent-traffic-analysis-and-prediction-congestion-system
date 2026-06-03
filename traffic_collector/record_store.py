@@ -11,7 +11,7 @@ from datetime import datetime
 from django.db import IntegrityError
 from django.utils import timezone
 
-from .logger import logger
+from traffic_context.logger import logger
 
 # Fields copied straight from the collected ``record`` dict into the model.
 # ``timestamp`` and ``route`` are handled separately (they form the unique key).

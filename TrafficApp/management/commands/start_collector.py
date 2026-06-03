@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 import time
 from traffic_collector.scheduler import TrafficScheduler
-from traffic_collector.logger import logger
+from traffic_context.logger import logger
 
 class Command(BaseCommand):
     help = 'Starts the automated traffic collection scheduler'

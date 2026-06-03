@@ -2,7 +2,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
 from .collector import TrafficCollector
-from .logger import logger
+from traffic_context.logger import logger
 
 class TrafficScheduler:
     def __init__(self):
