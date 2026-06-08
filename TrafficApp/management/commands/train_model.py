@@ -37,7 +37,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         import lightgbm as lgb
-        from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+        from sklearn.metrics import (
+            average_precision_score, classification_report, confusion_matrix,
+            precision_recall_curve, roc_auc_score,
+        )
 
         artifacts_dir = settings.BASE_DIR / "ml_artifacts"
         candidate_dir = artifacts_dir / "candidate"
@@ -83,15 +86,32 @@ class Command(BaseCommand):
         )
         model.fit(X_train, y_train)
 
-        # ── evaluate ──────────────────────────────────────────────────
+        def _roc(yt, p):
+            try:
+                return float(roc_auc_score(yt, p)) if len(set(yt)) > 1 else float("nan")
+            except ValueError:
+                return float("nan")
+
+        def _pr(yt, p):  # PR-AUC (average precision) — the honest metric for a rare class
+            try:
+                return float(average_precision_score(yt, p)) if len(set(yt)) > 1 else float("nan")
+            except ValueError:
+                return float("nan")
+
+        # ── tune the decision threshold on TRAINING data ───────────────
+        # Tuning on the test set would leak; with this little data, training is
+        # the pragmatic, honest choice (note: mildly optimistic).
+        train_proba = model.predict_proba(X_train)[:, 1]
+        prec_t, rec_t, thr_t = precision_recall_curve(y_train, train_proba)
+        f1_t = 2 * prec_t * rec_t / (prec_t + rec_t + 1e-12)
+        threshold = float(thr_t[int(np.nanargmax(f1_t[:-1]))]) if len(thr_t) else 0.5
+
+        # ── evaluate on the chronological holdout ──────────────────────
         proba = model.predict_proba(X_test)[:, 1]
-        threshold = 0.5
         y_pred = (proba >= threshold).astype(int)
 
-        try:
-            auc = float(roc_auc_score(y_test, proba)) if len(set(y_test)) > 1 else float("nan")
-        except ValueError:
-            auc = float("nan")
+        auc = _roc(y_test, proba)
+        pr_auc = _pr(y_test, proba)
         report = classification_report(
             y_test, y_pred, labels=[0, 1],
             target_names=["Free-flow", "Congested"], zero_division=0, output_dict=True,
@@ -99,18 +119,40 @@ class Command(BaseCommand):
         cm = confusion_matrix(y_test, y_pred, labels=[0, 1])
         congested_recall = report["Congested"]["recall"]
 
-        self.stdout.write("\n=== Holdout evaluation ===")
+        # ── dumb baseline: route × hour average congestion rate ────────
+        # If LightGBM can't beat this lookup table, the ML adds nothing.
+        base = df.iloc[:split].copy()
+        base["_y"] = y_train
+        lookup = base.groupby(["route", "hour"])["_y"].mean()
+        global_rate = float(y_train.mean())
+        base_proba = df.iloc[split:].apply(
+            lambda r: lookup.get((r["route"], r["hour"]), global_rate), axis=1
+        ).to_numpy()
+        base_pr_auc = _pr(y_test, base_proba)
+        base_roc = _roc(y_test, base_proba)
+
+        self.stdout.write("\n=== Holdout evaluation (chronological 20%) ===")
         self.stdout.write(classification_report(
             y_test, y_pred, labels=[0, 1],
             target_names=["Free-flow", "Congested"], zero_division=0))
         self.stdout.write(f"Confusion matrix [rows=true, cols=pred] (Free-flow, Congested):\n{cm}")
-        self.stdout.write(f"ROC-AUC: {auc:.3f} | Congested recall: {congested_recall:.3f}")
+        self.stdout.write(f"Tuned threshold (from train PR curve): {threshold:.3f}")
+        self.stdout.write(
+            f"MODEL    -> PR-AUC: {pr_auc:.3f} | ROC-AUC: {auc:.3f} | Congested recall: {congested_recall:.3f}")
+        self.stdout.write(
+            f"BASELINE -> PR-AUC: {base_pr_auc:.3f} | ROC-AUC: {base_roc:.3f}  (route × hour lookup)")
+        beats = pr_auc > base_pr_auc
+        self.stdout.write((self.style.SUCCESS if beats else self.style.WARNING)(
+            f"PR-AUC verdict: model {'beats' if beats else 'does NOT beat'} the baseline."))
 
         metrics = {
             "trained_at": datetime.now(timezone.utc).isoformat(),
             "rows_clean": int(len(df)), "n_features": int(X.shape[1]),
             "free_flow": int((y == 0).sum()), "congested": int((y == 1).sum()),
-            "roc_auc": auc, "congested_recall": congested_recall,
+            "roc_auc": auc, "pr_auc": pr_auc,
+            "baseline_pr_auc": base_pr_auc, "baseline_roc_auc": base_roc,
+            "threshold": threshold,
+            "congested_recall": congested_recall,
             "congested_precision": report["Congested"]["precision"],
             "congested_f1": report["Congested"]["f1-score"],
         }
@@ -158,7 +200,10 @@ class Command(BaseCommand):
                 f"- Clean rows: {metrics['rows_clean']} | Free-flow: {metrics['free_flow']} | Congested: {metrics['congested']}\n"
                 f"- Routes encoded: {len(route_vocab)} | Features: {metrics['n_features']}\n\n"
                 f"## Holdout metrics (chronological 20%)\n"
-                f"- ROC-AUC: {metrics['roc_auc']:.3f}\n"
+                f"- PR-AUC (honest headline): {metrics.get('pr_auc', float('nan')):.3f} "
+                f"vs route×hour baseline {metrics.get('baseline_pr_auc', float('nan')):.3f}\n"
+                f"- ROC-AUC: {metrics['roc_auc']:.3f} (flattered by class imbalance)\n"
+                f"- Decision threshold (tuned on train): {metrics.get('threshold', 0.5):.3f}\n"
                 f"- Congested precision/recall/F1: "
                 f"{metrics['congested_precision']:.3f} / {metrics['congested_recall']:.3f} / {metrics['congested_f1']:.3f}\n\n"
                 f"## Known limitations\n"

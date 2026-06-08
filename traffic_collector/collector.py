@@ -37,14 +37,15 @@ class TrafficCollector:
         weather_data = self.weather_service.get_current_weather()
         is_holiday = self.holiday_service.is_public_holiday(now.date())
         school_indicators = self.school_service.get_indicators(now)
-        event_info = self.event_detector.get_event_info(now)
         office_indicators = self.event_detector.get_office_indicators(now)
-        
+
+        # NOTE: event/market context is intentionally NOT computed here. Markets
+        # are location-aware, so they are resolved per route in
+        # ``collect_route_data`` using that route's origin/destination.
         context = {
             **weather_data,
             "holiday_indicator": is_holiday,
             **school_indicators,
-            **event_info,
             **office_indicators,
             "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
             "hour": now.hour,
@@ -70,6 +71,10 @@ class TrafficCollector:
         # Combine with context
         record = {**context, **traffic_data}
         record["route"] = f"{origin} to {destination}"
+
+        # Location-aware event/market context for THIS route.
+        dt = datetime.strptime(context["timestamp"], "%Y-%m-%d %H:%M:%S")
+        record.update(self.event_detector.get_event_info(dt, origin, destination))
         
         # Calculate Pressure Score
         record["traffic_pressure_score"] = self.pressure_calculator.calculate(record)

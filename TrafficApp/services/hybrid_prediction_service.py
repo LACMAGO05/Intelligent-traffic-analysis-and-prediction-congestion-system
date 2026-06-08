@@ -51,7 +51,7 @@ class HybridPredictionService:
         else:
             target_dt = datetime.fromtimestamp(int(departure_time))
 
-        context = self._gather_context(target_dt)
+        context = self._gather_context(target_dt, origin, destination)
 
         # 3. Enrich route data with context
         primary_route = google_data['primary_route']
@@ -68,12 +68,12 @@ class HybridPredictionService:
 
         return final_prediction
 
-    def _gather_context(self, dt):
+    def _gather_context(self, dt, origin=None, destination=None):
         """Uses existing collector services to get environmental context."""
         weather = self.weather_svc.get_current_weather()
         holiday = self.holiday_svc.is_public_holiday(dt.date())
         school = self.school_svc.get_indicators(dt)
-        events = self.event_det.get_event_info(dt)
+        events = self.event_det.get_event_info(dt, origin, destination)
         office = self.event_det.get_office_indicators(dt)
 
         context = {
