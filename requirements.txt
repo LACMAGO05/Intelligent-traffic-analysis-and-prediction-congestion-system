@@ -25,3 +25,5 @@ numpy==2.4.4
 scikit-learn==1.8.0
 lightgbm==4.6.0
 joblib==1.5.3
+holidays==0.96
+APScheduler==3.11.2
