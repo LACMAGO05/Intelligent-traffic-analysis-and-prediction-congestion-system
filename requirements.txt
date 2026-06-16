@@ -20,4 +20,8 @@ psycopg[binary]
 sendgrid==6.11.0
 redis==5.2.1
 
-pandas
+pandas==3.0.2
+numpy==2.4.4
+scikit-learn==1.8.0
+lightgbm==4.6.0
+joblib==1.5.3
