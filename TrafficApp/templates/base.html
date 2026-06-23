@@ -1,4 +1,5 @@
 {% load static %}
+{% load static_version %}
 <!DOCTYPE html>
 <html class="light" lang="en">
 <head>
@@ -16,8 +17,8 @@
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries,typography,aspect-ratio"></script>
     
     <!-- UI Enhancement Styles -->
-    <link href="{% static 'css/ui-enhancements.css' %}" rel="stylesheet" />
-    <link href="{% static 'css/loader.css' %}" rel="stylesheet" />
+    <link href="{% static_v 'css/ui-enhancements.css' %}" rel="stylesheet" />
+    <link href="{% static_v 'css/loader.css' %}" rel="stylesheet" />
     
     <script id="tailwind-config">
       tailwind.config = {
@@ -77,8 +78,8 @@
     {% endblock %}
 
     <!-- UI Enhancement Scripts -->
-    <script src="{% static 'js/ui-enhancements.js' %}"></script>
-    <script src="{% static 'js/loader.js' %}"></script>
+    <script src="{% static_v 'js/ui-enhancements.js' %}"></script>
+    <script src="{% static_v 'js/loader.js' %}"></script>
     {% block extra_js %}{% endblock %}
 </body>
 </html>

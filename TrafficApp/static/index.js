@@ -49,6 +49,27 @@ async function predictTraffic() {
             return;
         }
 
+        // Keep the guest trial counter in sync after a free prediction.
+        if (typeof data.remaining_free === "number") {
+            const remEl = document.getElementById("guest-remaining");
+            if (remEl) remEl.textContent = data.remaining_free;
+        }
+
+        // Guest trial exhausted → show the "create an account" wall.
+        if (data.auth_required) {
+            displayMessage(`
+                <div class="p-5 bg-primary/5 border border-primary/20 rounded-xl text-center space-y-3">
+                    <span class="material-symbols-outlined text-primary text-4xl">lock</span>
+                    <p class="font-bold text-on-surface">${data.message}</p>
+                    <div class="flex items-center justify-center gap-3 pt-1">
+                        <a href="/signup/" class="bg-primary text-white font-bold px-5 py-2.5 rounded-lg hover:bg-primary-container transition-colors">Create free account</a>
+                        <a href="/login/" class="text-primary font-semibold hover:underline">Sign in</a>
+                    </div>
+                </div>
+            `, "bot");
+            return;
+        }
+
     if (data.thread_id) {
         if (!currentThreadId) {
             currentThreadId = data.thread_id;
@@ -317,6 +338,9 @@ async function predictTraffic() {
 }
 
 async function loadChatThreads() {
+    // Guests have no saved history and the endpoint is login-only; skip quietly.
+    if (window.IS_AUTHENTICATED === false) return;
+
     const historyList = document.getElementById("history-list");
     if (!historyList) return;
 

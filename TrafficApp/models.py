@@ -79,6 +79,38 @@ class TrafficRecord(models.Model):
         return f"{self.route} @ {self.timestamp} ({self.congestion})"
 
 
+class TrustedDevice(models.Model):
+    """
+    A browser/device that has already passed new-device email verification.
+
+    Login issues a session immediately only when the incoming request carries a
+    cookie whose token matches a non-expired row here. Otherwise the user is
+    challenged with an emailed one-time code (step-up verification), mirroring the
+    "new sign-in on a new device" check used by major providers.
+
+    Only the SHA-256 *hash* of the device token is stored; the raw token lives
+    solely in the user's cookie, so a database leak can't be replayed as a device.
+    """
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="trusted_devices"
+    )
+    token_hash = models.CharField(max_length=64, db_index=True)
+    user_agent = models.CharField(max_length=400, blank=True, default="")
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-last_seen"]
+        indexes = [
+            models.Index(fields=["user", "token_hash"], name="idx_trusted_user_token"),
+        ]
+
+    def __str__(self):
+        return f"TrustedDevice for {self.user.username} (exp {self.expires_at:%Y-%m-%d})"
+
+
 class PredictionLog(models.Model):
     """
     Per-prediction log written by ``predict_view``.

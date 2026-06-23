@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load static %}
+{% load static_version %}
 
 {% block title %}Traffik Intelligence - Predict Traffic Flow{% endblock %}
 
@@ -130,6 +131,16 @@
             </div>
           </div>
         </div>
+        {% if is_guest %}
+        <!-- Guest trial banner -->
+        <div id="guest-trial-banner" class="px-4 md:px-8 py-2.5 bg-primary/5 border-b border-primary/15 flex flex-wrap items-center justify-between gap-2 text-sm">
+          <p class="text-on-surface-variant flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary text-base">bolt</span>
+            <span>Free trial — <span id="guest-remaining" class="font-bold text-primary">{{ guest_remaining }}</span> of {{ guest_free_total }} predictions left</span>
+          </p>
+          <a href="{% url 'signup' %}" class="font-semibold text-primary hover:underline">Create a free account for unlimited →</a>
+        </div>
+        {% endif %}
         <!-- Chat Scroll Area -->
        <div id="chatbox"
             class="flex-1 overflow-y-auto px-4 md:px-8 py-8 flex flex-col gap-6 custom-scrollbar scroll-smooth">
@@ -278,5 +289,9 @@
 {% endblock %}
 
 {% block extra_js %}
-    <script src="{% static 'index.js' %}?v=1"></script>
+    <script>
+        // Lets the app skip login-only calls (e.g. chat history) for guest users.
+        window.IS_AUTHENTICATED = {% if user.is_authenticated %}true{% else %}false{% endif %};
+    </script>
+    <script src="{% static_v 'index.js' %}"></script>
 {% endblock %}

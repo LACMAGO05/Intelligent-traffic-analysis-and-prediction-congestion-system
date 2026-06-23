@@ -4,13 +4,18 @@ from urllib import request
 from django.shortcuts import render, redirect
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate, login, logout
+from django.contrib.sessions.models import Session
+from django.utils import timezone
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.mail import send_mail
 from .utils import generate_otp, get_realtime_traffic, find_best_departure_time
-from .services.email_service import send_verification_email, send_welcome_email, send_contact_email
+from .services.email_service import (
+    send_verification_email, send_welcome_email, send_contact_email,
+    send_device_verification_email, send_new_device_login_alert,
+)
 from .tasks import run_async
-from .models import ChatMessage, ChatThread, PredictionLog
+from .models import ChatMessage, ChatThread, PredictionLog, TrustedDevice
 from django.core.paginator import Paginator
 from .services.hybrid_prediction_service import HybridPredictionService
 
@@ -31,9 +36,59 @@ from .rbac import role_required
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
 import hashlib
+import secrets
 import logging
 
 logger = logging.getLogger(__name__)
+
+# ── New-device login verification (step-up MFA via emailed code) ───────────────
+# A long-lived cookie marks a browser the user has already verified. Its raw
+# token is random and only the SHA-256 hash is stored server-side (TrustedDevice).
+TRUSTED_DEVICE_COOKIE = "trusted_device"
+TRUSTED_DEVICE_MAX_AGE = 60 * 60 * 24 * 60  # 60 days
+
+
+def _client_ip(request):
+    """Best-effort client IP, honouring the proxy header Render sits behind."""
+    xff = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
+def _is_trusted_device(request, user):
+    """True if this browser carries a valid, non-expired trusted-device cookie."""
+    raw = request.COOKIES.get(TRUSTED_DEVICE_COOKIE)
+    if not raw:
+        return False
+    token_hash = hashlib.sha256(raw.encode()).hexdigest()
+    device = TrustedDevice.objects.filter(
+        user=user, token_hash=token_hash, expires_at__gte=timezone.now()
+    ).first()
+    if not device:
+        return False
+    device.save(update_fields=["last_seen"])  # auto_now refreshes last_seen
+    return True
+
+
+def _remember_device(request, response, user):
+    """Persist a new trusted device and drop its token in a secure cookie."""
+    raw_token = secrets.token_urlsafe(32)
+    TrustedDevice.objects.create(
+        user=user,
+        token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+        user_agent=request.META.get("HTTP_USER_AGENT", "")[:400],
+        ip_address=_client_ip(request),
+        expires_at=timezone.now() + datetime.timedelta(seconds=TRUSTED_DEVICE_MAX_AGE),
+    )
+    response.set_cookie(
+        TRUSTED_DEVICE_COOKIE,
+        raw_token,
+        max_age=TRUSTED_DEVICE_MAX_AGE,
+        httponly=True,
+        secure=not settings.DEBUG,
+        samesite="Lax",
+    )
 
 from django.contrib.auth import views as auth_views
 from django.urls import reverse_lazy
@@ -80,13 +135,100 @@ def signin_view(request):
         username = request.POST.get("username")
         password = request.POST.get("password")
         user = authenticate(request, username=username, password=password)
-        if user is not None:
-            login(request, user)
-            return redirect("predict")
-        else:
+        if user is None:
+            # Same message whether the username exists or not — never reveal which.
             messages.error(request, "Invalid username or password")
             return redirect("signin")
+
+        # Known device → log in straight away.
+        if _is_trusted_device(request, user):
+            login(request, user)
+            return redirect("predict")
+
+        # New/unknown device → require an emailed one-time code before granting a
+        # session (step-up verification). We do NOT call login() yet; the user's
+        # identity is parked in the session until the code is confirmed.
+        code = generate_otp()
+        request.session['pending_login'] = {
+            'user_id': user.pk,
+            'code_hash': hashlib.sha256(code.encode()).hexdigest(),
+            'created_at': timezone.now().isoformat(),
+            'attempts': 0,
+        }
+
+        if not send_device_verification_email(user.email, user.username, code):
+            del request.session['pending_login']
+            messages.error(request, "We couldn't send your verification code. Please try again.")
+            return redirect("signin")
+
+        messages.success(request, "New device detected. We emailed you a sign-in verification code.")
+        return redirect("verify_device")
+
     return render(request, 'sign_in.html')
+
+
+@ratelimit(key='ip', rate='5/10m', method='POST', block=True)
+def verify_device(request):
+    """Confirm the emailed code for a login from an unrecognised device."""
+    data = request.session.get('pending_login')
+
+    # GET: show the code-entry page, but only if a login is actually pending.
+    if request.method != 'POST':
+        if not data:
+            return redirect('signin')
+        return render(request, 'verify_device.html')
+
+    if not data:
+        messages.error(request, 'Your sign-in session expired. Please log in again.')
+        return redirect('signin')
+
+    created_at = datetime.datetime.fromisoformat(data['created_at'])
+    if timezone.is_naive(created_at):
+        created_at = timezone.make_aware(created_at)
+    if (timezone.now() - created_at).total_seconds() > 600:
+        del request.session['pending_login']
+        messages.error(request, 'The verification code expired. Please log in again.')
+        return redirect('signin')
+
+    attempts = data.get('attempts', 0)
+    if attempts >= 5:
+        del request.session['pending_login']
+        messages.error(request, 'Too many incorrect attempts. Please log in again.')
+        return redirect('signin')
+
+    entered = request.POST.get('otp', '').strip()
+    if hashlib.sha256(entered.encode()).hexdigest() != data['code_hash']:
+        data['attempts'] = attempts + 1
+        request.session['pending_login'] = data
+        request.session.modified = True
+        messages.error(request, f'Invalid code. {5 - data["attempts"]} attempts remaining.')
+        return render(request, 'verify_device.html')
+
+    # Code correct → resolve the parked user and start the real session.
+    try:
+        user = User.objects.get(pk=data['user_id'])
+    except User.DoesNotExist:
+        del request.session['pending_login']
+        messages.error(request, 'Account not found. Please log in again.')
+        return redirect('signin')
+
+    del request.session['pending_login']
+    login(request, user)
+
+    # Notify the owner of the new-device sign-in (off the request path) so they
+    # can react if it wasn't them.
+    run_async(
+        send_new_device_login_alert,
+        user.email, user.username,
+        ip=_client_ip(request),
+        user_agent=request.META.get("HTTP_USER_AGENT", "")[:200],
+        when=timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M %Z"),
+    )
+
+    response = redirect('predict')
+    # Remember this browser so future logins from it skip the email challenge.
+    _remember_device(request, response, user)
+    return response
 
 
 @ratelimit(key='ip', rate='3/h', method='POST', block=True)
@@ -144,6 +286,61 @@ class CustomPasswordResetView(auth_views.PasswordResetView):
         form.save(request=self.request, use_https=self.request.is_secure())
         return super().form_valid(form)
 
+
+class CustomPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
+    """
+    On a successful password change, revoke all trust for that account:
+    delete every trusted device AND every active session. A password reset is
+    the user's "I may be compromised" signal, so a stolen cookie or hijacked
+    session must not survive it, and every device must re-verify on next login.
+    """
+    success_url = reverse_lazy('password_reset_complete')
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        user = form.user
+        TrustedDevice.objects.filter(user=user).delete()
+        uid = str(user.pk)
+        for session in Session.objects.filter(expire_date__gte=timezone.now()):
+            if session.get_decoded().get('_auth_user_id') == uid:
+                session.delete()
+        return response
+
+
+@login_required
+def devices_view(request):
+    """
+    Let a signed-in user review and revoke their trusted devices (the browsers
+    that skip new-device email verification). Revoking forces that device to
+    pass the emailed-code challenge again on its next login.
+    """
+    if request.method == "POST":
+        if request.POST.get("action") == "revoke_all":
+            request.user.trusted_devices.all().delete()
+            messages.success(
+                request,
+                "All trusted devices removed. Every device must verify by email on next sign-in.",
+            )
+        else:
+            deleted, _ = TrustedDevice.objects.filter(
+                user=request.user, pk=request.POST.get("device_id")
+            ).delete()
+            messages.success(request, "Device removed.") if deleted else \
+                messages.error(request, "That device was not found.")
+        return redirect("devices")
+
+    # Flag the row (if any) that belongs to the browser making this request.
+    current_hash = None
+    raw = request.COOKIES.get(TRUSTED_DEVICE_COOKIE)
+    if raw:
+        current_hash = hashlib.sha256(raw.encode()).hexdigest()
+
+    devices = list(request.user.trusted_devices.filter(expires_at__gte=timezone.now()))
+    for d in devices:
+        d.is_current = (d.token_hash == current_hash)
+
+    return render(request, "manage_devices.html", {"devices": devices})
+
 @ratelimit(key='ip', rate='5/10m', method='POST', block=True)
 def verify_otp(request):
     # GET: render the OTP entry page, but only if a signup is actually pending.
@@ -198,6 +395,16 @@ def verify_otp(request):
 
 
 def logout_view(request):
+    # Log the user out of EVERY device, not just this one. Django's default
+    # logout(request) only deletes the current device's session row; here we
+    # first delete all active session rows belonging to this user so their
+    # other devices are logged out on their next request.
+    user = request.user
+    if user.is_authenticated:
+        uid = str(user.pk)
+        for session in Session.objects.filter(expire_date__gte=timezone.now()):
+            if session.get_decoded().get('_auth_user_id') == uid:
+                session.delete()
     logout(request)
     return redirect("landing")
 import csv
@@ -224,9 +431,16 @@ def sanitize_location(value: str) -> str:
     return value.strip()[:200]
 
 
-@ratelimit(key='user', rate='30/m', method='POST', block=True)
-@role_required('Admin', 'Analyst', 'Commuter')
+# How many free predictions an anonymous visitor gets per session before being
+# asked to create an account (the "try it like ChatGPT" trial). Kept small to
+# protect the paid Google Maps API from anonymous abuse.
+GUEST_FREE_PREDICTIONS = 2
+
+
+# IP-keyed so anonymous guests are covered too (a 'user' key is empty for them).
+@ratelimit(key='ip', rate='20/m', method='POST', block=True)
 def predict_view(request):
+    is_guest = not request.user.is_authenticated
     if request.method == "POST":
         try:
             origin = sanitize_location(request.POST.get('origin', ''))
@@ -236,6 +450,16 @@ def predict_view(request):
 
             if not origin or not destination:
                 return JsonResponse({"error": "Please provide both origin and destination."}, status=400)
+
+            # Guest trial wall: allow a few free predictions per session, then
+            # require an account. Checked BEFORE the paid Maps call so an
+            # over-quota guest never spends our API budget.
+            guest_used = request.session.get('guest_predictions_used', 0)
+            if is_guest and guest_used >= GUEST_FREE_PREDICTIONS:
+                return JsonResponse({
+                    "auth_required": True,
+                    "message": "You've used your free predictions. Create a free account to keep predicting — it only takes a minute.",
+                })
 
             now = timezone.now()
             departure_time = "now"
@@ -293,7 +517,16 @@ def predict_view(request):
                 is_prediction=bool(prediction_data.get("is_prediction")),
             )
 
-            # Save to Chat History
+            # Guests have no persistent chat history: just count the free use
+            # and return the result (with how many trials remain).
+            if is_guest:
+                request.session['guest_predictions_used'] = guest_used + 1
+                response_data = prediction_data.copy()
+                response_data["guest"] = True
+                response_data["remaining_free"] = GUEST_FREE_PREDICTIONS - (guest_used + 1)
+                return JsonResponse(response_data)
+
+            # Authenticated users: save to Chat History.
             thread_id = request.POST.get("thread_id")
             thread = None
             if thread_id:
@@ -338,8 +571,14 @@ def predict_view(request):
             )
 
     # GET request: Load the page
+    guest_remaining = None
+    if is_guest:
+        guest_remaining = max(0, GUEST_FREE_PREDICTIONS - request.session.get('guest_predictions_used', 0))
     return render(request, 'predict.html', {
-        'google_maps_api_key': settings.GOOGLE_MAPS_API_KEY
+        'google_maps_api_key': settings.GOOGLE_MAPS_API_KEY,
+        'is_guest': is_guest,
+        'guest_remaining': guest_remaining,
+        'guest_free_total': GUEST_FREE_PREDICTIONS,
     })
 
 @login_required

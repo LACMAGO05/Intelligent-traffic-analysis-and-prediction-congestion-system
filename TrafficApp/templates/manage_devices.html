@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Your Devices | Traffik Intelligence{% endblock %}
+
+{% block content %}
+<section class="min-h-screen px-6 py-12 relative overflow-hidden">
+    <div class="absolute inset-0 pointer-events-none overflow-hidden">
+        <div class="absolute -top-24 -left-24 w-96 h-96 bg-primary/5 rounded-full blur-3xl"></div>
+        <div class="absolute top-1/2 -right-48 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[100px]"></div>
+    </div>
+
+    <div class="w-full max-w-3xl mx-auto relative z-10">
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="font-headline text-3xl font-extrabold tracking-tighter text-primary">
+                Trusted Devices
+            </h1>
+            <p class="text-slate-500 mt-2 font-medium">
+                These browsers skip email verification when you sign in. Remove any you
+                don't recognise — that device will have to verify by email next time.
+            </p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden">
+            {% if devices %}
+            <ul class="divide-y divide-slate-100">
+                {% for d in devices %}
+                <li class="flex items-start justify-between gap-4 p-5">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-primary">devices</span>
+                            <p class="font-headline font-bold text-slate-900 truncate">
+                                {{ d.user_agent|default:"Unknown device" }}
+                            </p>
+                            {% if d.is_current %}
+                            <span class="text-xs font-bold uppercase tracking-wide bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                This device
+                            </span>
+                            {% endif %}
+                        </div>
+                        <p class="text-sm text-slate-500 mt-1">
+                            IP {{ d.ip_address|default:"unknown" }} ·
+                            Added {{ d.created_at|date:"M d, Y" }} ·
+                            Last seen {{ d.last_seen|date:"M d, Y H:i" }}
+                        </p>
+                    </div>
+                    <form method="post" class="shrink-0">
+                        {% csrf_token %}
+                        <input type="hidden" name="device_id" value="{{ d.pk }}" />
+                        <button type="submit"
+                            class="text-sm font-semibold text-red-600 hover:text-white hover:bg-red-600 border border-red-200 hover:border-red-600 rounded-lg px-3 py-2 transition-colors">
+                            Remove
+                        </button>
+                    </form>
+                </li>
+                {% endfor %}
+            </ul>
+
+            <!-- Revoke all -->
+            <div class="p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-4">
+                <p class="text-sm text-slate-500">
+                    Sign out trust on every device at once.
+                </p>
+                <form method="post" onsubmit="return confirm('Remove all trusted devices? Every sign-in will then require an email code.');">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="revoke_all" />
+                    <button type="submit"
+                        class="text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg px-4 py-2 transition-colors">
+                        Remove all
+                    </button>
+                </form>
+            </div>
+            {% else %}
+            <div class="p-10 text-center">
+                <span class="material-symbols-outlined text-5xl text-slate-300">devices_off</span>
+                <p class="text-slate-500 mt-3 font-medium">
+                    No trusted devices yet. The next time you sign in and verify by email,
+                    that browser will appear here.
+                </p>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="mt-8">
+            <a class="text-primary font-semibold hover:underline inline-flex items-center gap-1 group" href="{% url 'predict' %}">
+                <span class="material-symbols-outlined text-sm group-hover:-translate-x-1 transition-transform">arrow_back</span>
+                Back to app
+            </a>
+        </div>
+    </div>
+</section>
+{% endblock %}
