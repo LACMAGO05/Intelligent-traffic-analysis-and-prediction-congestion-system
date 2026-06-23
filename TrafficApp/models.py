@@ -79,6 +79,38 @@ class TrafficRecord(models.Model):
         return f"{self.route} @ {self.timestamp} ({self.congestion})"
 
 
+class AnalyticsEvent(models.Model):
+    """
+    Lightweight product-analytics event log — one row per event.
+
+    Used to measure the guest → signup conversion funnel. The optional
+    ``session_key`` lets anonymous activity (guest predictions, hitting the
+    trial wall) be attributed to a signup that happens later in the same
+    browser session; ``user`` is filled once the visitor has an account.
+    """
+    EVENT_GUEST_PREDICTION = "guest_prediction"
+    EVENT_WALL_HIT = "wall_hit"
+    EVENT_SIGNUP = "signup_completed"
+    EVENT_GUEST_CONVERTED = "guest_converted"
+
+    event = models.CharField(max_length=40, db_index=True)
+    session_key = models.CharField(max_length=40, blank=True, default="", db_index=True)
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="analytics_events",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["event", "created_at"], name="idx_event_created"),
+        ]
+
+    def __str__(self):
+        return f"{self.event} @ {self.created_at:%Y-%m-%d %H:%M}"
+
+
 class TrustedDevice(models.Model):
     """
     A browser/device that has already passed new-device email verification.

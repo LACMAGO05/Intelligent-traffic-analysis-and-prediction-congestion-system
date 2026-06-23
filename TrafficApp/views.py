@@ -15,11 +15,13 @@ from .services.email_service import (
     send_device_verification_email, send_new_device_login_alert,
 )
 from .tasks import run_async
-from .models import ChatMessage, ChatThread, PredictionLog, TrustedDevice
+from .models import ChatMessage, ChatThread, PredictionLog, TrustedDevice, TrafficRecord, AnalyticsEvent
 from django.core.paginator import Paginator
 from .services.hybrid_prediction_service import HybridPredictionService
 
 from django.http import JsonResponse
+from django.db.models import Count, Q
+from django.db.models.functions import TruncDate
 from django_ratelimit.decorators import ratelimit
 from django.contrib.auth.hashers import make_password
 from django.conf import settings
@@ -46,6 +48,25 @@ logger = logging.getLogger(__name__)
 # token is random and only the SHA-256 hash is stored server-side (TrustedDevice).
 TRUSTED_DEVICE_COOKIE = "trusted_device"
 TRUSTED_DEVICE_MAX_AGE = 60 * 60 * 24 * 60  # 60 days
+
+
+def _log_event(request, event, user=None):
+    """
+    Record a product-analytics event (best-effort; never breaks the request).
+
+    Ensures the session has a key so anonymous activity can later be attributed
+    to a signup that happens in the same browser session.
+    """
+    try:
+        if not request.session.session_key:
+            request.session.save()
+        AnalyticsEvent.objects.create(
+            event=event,
+            session_key=request.session.session_key or "",
+            user=user,
+        )
+    except Exception:
+        logger.exception("Failed to log analytics event %s", event)
 
 
 def _client_ip(request):
@@ -388,6 +409,13 @@ def verify_otp(request):
     user.groups.add(commuter_group)
 
     del request.session['signup_data']
+
+    # Funnel events: every signup, plus a conversion if this same session had
+    # previously hit the guest trial wall.
+    _log_event(request, AnalyticsEvent.EVENT_SIGNUP, user=user)
+    if request.session.pop('saw_wall', False):
+        _log_event(request, AnalyticsEvent.EVENT_GUEST_CONVERTED, user=user)
+
     # Welcome email is non-critical; send it off the request path.
     run_async(send_welcome_email, user.email, user.username)
     messages.success(request, 'Your account has been created. Please log in.')
@@ -456,6 +484,10 @@ def predict_view(request):
             # over-quota guest never spends our API budget.
             guest_used = request.session.get('guest_predictions_used', 0)
             if is_guest and guest_used >= GUEST_FREE_PREDICTIONS:
+                # Funnel: remember this session saw the wall so a later signup
+                # can be attributed as a conversion.
+                request.session['saw_wall'] = True
+                _log_event(request, AnalyticsEvent.EVENT_WALL_HIT)
                 return JsonResponse({
                     "auth_required": True,
                     "message": "You've used your free predictions. Create a free account to keep predicting — it only takes a minute.",
@@ -521,6 +553,7 @@ def predict_view(request):
             # and return the result (with how many trials remain).
             if is_guest:
                 request.session['guest_predictions_used'] = guest_used + 1
+                _log_event(request, AnalyticsEvent.EVENT_GUEST_PREDICTION)
                 response_data = prediction_data.copy()
                 response_data["guest"] = True
                 response_data["remaining_free"] = GUEST_FREE_PREDICTIONS - (guest_used + 1)
@@ -637,18 +670,139 @@ def thread_detail_view(request, thread_id):
     except (ChatThread.DoesNotExist, ValueError):
         return JsonResponse({"error": "Thread not found"}, status=404)
 
+_CONGESTED = ["Medium", "High"]
+_DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+
+def _congested_pct(qs):
+    """Percentage of rows in a TrafficRecord queryset that are Medium/High."""
+    agg = qs.aggregate(
+        total=Count("id"),
+        congested=Count("id", filter=Q(congestion__in=_CONGESTED)),
+    )
+    total = agg["total"] or 0
+    return round(100 * agg["congested"] / total) if total else 0
+
+
 # Analytics — Admin and Analyst only
 @role_required('Admin', 'Analyst')
 def analytics_view(request):
     try:
-        # Aggregate directly from the local PredictionLog table (Postgres),
-        # replacing the previous external Supabase read.
-        logs = PredictionLog.objects.all()
+        is_admin = (request.user.is_superuser
+                    or request.user.groups.filter(name="Admin").exists())
+        tr = TrafficRecord.objects
+
+        # ── Summary (from the rich collector dataset) ────────────────────────
+        obs_total = tr.count()
+        obs_high = tr.filter(congestion="High").count()
+        obs_medium = tr.filter(congestion="Medium").count()
+        obs_low = tr.filter(congestion="Low").count()
+        congested_overall = (
+            round(100 * (obs_high + obs_medium) / obs_total) if obs_total else 0
+        )
+
+        # ── 1. Peak-hour heatmap: % congested per (day_of_week, hour) ─────────
+        grid_qs = (
+            tr.filter(day_of_week__isnull=False, hour__isnull=False)
+            .values("day_of_week", "hour")
+            .annotate(
+                total=Count("id"),
+                congested=Count("id", filter=Q(congestion__in=_CONGESTED)),
+            )
+        )
+        grid = {}
+        for r in grid_qs:
+            pct = round(100 * r["congested"] / r["total"]) if r["total"] else 0
+            grid[(r["day_of_week"], r["hour"])] = (pct, r["total"])
+        heatmap = []
+        for d in range(7):
+            cells = []
+            for h in range(24):
+                pct, total = grid.get((d, h), (None, 0))
+                cells.append({"hour": h, "pct": pct, "total": total})
+            heatmap.append({"day": _DAY_NAMES[d], "cells": cells})
+
+        # ── 2. Worst corridors: top routes by % congested (min sample size) ───
+        MIN_SAMPLES = 20
+        routes_qs = (
+            tr.values("route")
+            .annotate(
+                total=Count("id"),
+                congested=Count("id", filter=Q(congestion__in=_CONGESTED)),
+            )
+            .filter(total__gte=MIN_SAMPLES)
+        )
+        worst_routes = sorted(
+            (
+                {
+                    "route": r["route"],
+                    "pct": round(100 * r["congested"] / r["total"]),
+                    "total": r["total"],
+                }
+                for r in routes_qs
+            ),
+            key=lambda x: x["pct"],
+            reverse=True,
+        )[:10]
+
+        # ── 3. Context impact: % congested with vs without each factor ────────
+        context_impact = [
+            {"factor": "Rain", "with": _congested_pct(tr.filter(rainfall_status="Rain")),
+             "without": _congested_pct(tr.exclude(rainfall_status="Rain"))},
+            {"factor": "School hours", "with": _congested_pct(tr.filter(school_hours_indicator=1)),
+             "without": _congested_pct(tr.filter(school_hours_indicator=0))},
+            {"factor": "Office rush", "with": _congested_pct(tr.filter(office_rush_hour_indicator=1)),
+             "without": _congested_pct(tr.filter(office_rush_hour_indicator=0))},
+            {"factor": "Holiday", "with": _congested_pct(tr.filter(holiday_indicator=1)),
+             "without": _congested_pct(tr.filter(holiday_indicator=0))},
+        ]
+
+        # ── 4. Admin: usage, adoption (from PredictionLog + Users) ────────────
+        total_predictions = PredictionLog.objects.count()
+        guest_predictions = PredictionLog.objects.filter(user__isnull=True).count()
+        admin_panel = None
+        if is_admin:
+            since = timezone.now() - datetime.timedelta(days=14)
+            usage_qs = (
+                PredictionLog.objects.filter(created_at__gte=since)
+                .annotate(d=TruncDate("created_at"))
+                .values("d")
+                .annotate(c=Count("id"))
+                .order_by("d")
+            )
+            # Guest → signup conversion funnel (distinct sessions per stage).
+            ev = AnalyticsEvent.objects
+            funnel_tried = (ev.filter(event=AnalyticsEvent.EVENT_GUEST_PREDICTION)
+                            .exclude(session_key="").values("session_key").distinct().count())
+            funnel_wall = (ev.filter(event=AnalyticsEvent.EVENT_WALL_HIT)
+                           .exclude(session_key="").values("session_key").distinct().count())
+            funnel_converted = ev.filter(event=AnalyticsEvent.EVENT_GUEST_CONVERTED).count()
+            conversion_rate = round(100 * funnel_converted / funnel_wall) if funnel_wall else 0
+
+            admin_panel = {
+                "usage": [{"date": u["d"].strftime("%b %d"), "count": u["c"]} for u in usage_qs],
+                "total_users": User.objects.count(),
+                "registered_predictions": total_predictions - guest_predictions,
+                "guest_predictions": guest_predictions,
+                "funnel_tried": funnel_tried,
+                "funnel_wall": funnel_wall,
+                "funnel_converted": funnel_converted,
+                "conversion_rate": conversion_rate,
+            }
+
         context = {
-            "total":  logs.count(),
-            "high":   logs.filter(congestion="High").count(),
-            "medium": logs.filter(congestion="Medium").count(),
-            "low":    logs.filter(congestion="Low").count(),
+            "obs_total": obs_total,
+            "obs_high": obs_high,
+            "obs_medium": obs_medium,
+            "obs_low": obs_low,
+            "congested_overall": congested_overall,
+            "total_predictions": total_predictions,
+            "guest_predictions": guest_predictions,
+            "heatmap": heatmap,
+            "worst_routes": worst_routes,
+            "context_impact": context_impact,
+            "is_admin": is_admin,
+            "admin_panel": admin_panel,
         }
         return render(request, "analytics.html", context)
 

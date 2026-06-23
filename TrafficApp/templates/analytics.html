@@ -9,142 +9,238 @@
         <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>
                 <h1 class="text-3xl font-headline font-bold text-primary">Traffic Analytics</h1>
-                <p class="text-slate-500">Historical data and flow patterns</p>
-            </div>
-            <div class="flex gap-3">
-                <button class="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold hover:bg-slate-50 transition-colors flex items-center gap-2">
-                    <span class="material-symbols-outlined text-sm">calendar_today</span>
-                    Last 30 Days
-                </button>
-                <button class="px-4 py-2 bg-primary text-white rounded-xl text-sm font-semibold hover:bg-primary-container transition-all shadow-lg active:scale-95">
-                    Export Report
-                </button>
+                <p class="text-slate-500">Insights from {{ obs_total }} observed records</p>
             </div>
         </div>
 
-        <!-- Skeleton State -->
-        <div id="analytics-skeleton" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm animate-pulse">
-                <div class="w-12 h-12 bg-slate-100 rounded-2xl mb-4"></div>
-                <div class="w-24 h-4 bg-slate-50 rounded mb-2"></div>
-                <div class="w-16 h-8 bg-slate-100 rounded"></div>
+        <!-- Summary cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
+                    <span class="material-symbols-outlined">database</span>
+                </div>
+                <p class="text-sm font-medium text-slate-500">Observations</p>
+                <h3 class="text-2xl font-bold text-slate-900">{{ obs_total }}</h3>
             </div>
-            <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm animate-pulse">
-                <div class="w-12 h-12 bg-slate-100 rounded-2xl mb-4"></div>
-                <div class="w-24 h-4 bg-slate-50 rounded mb-2"></div>
-                <div class="w-16 h-8 bg-slate-100 rounded"></div>
+            <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <div class="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mb-4">
+                    <span class="material-symbols-outlined">warning</span>
+                </div>
+                <p class="text-sm font-medium text-slate-500">Congested overall</p>
+                <h3 class="text-2xl font-bold text-slate-900">{{ congested_overall }}%</h3>
             </div>
-            <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm animate-pulse">
-                <div class="w-12 h-12 bg-slate-100 rounded-2xl mb-4"></div>
-                <div class="w-24 h-4 bg-slate-50 rounded mb-2"></div>
-                <div class="w-16 h-8 bg-slate-100 rounded"></div>
+            <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center mb-4">
+                    <span class="material-symbols-outlined">query_stats</span>
+                </div>
+                <p class="text-sm font-medium text-slate-500">Predictions made</p>
+                <h3 class="text-2xl font-bold text-slate-900">{{ total_predictions }}</h3>
             </div>
-            <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm animate-pulse">
-                <div class="w-12 h-12 bg-slate-100 rounded-2xl mb-4"></div>
-                <div class="w-24 h-4 bg-slate-50 rounded mb-2"></div>
-                <div class="w-16 h-8 bg-slate-100 rounded"></div>
+            <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm">
+                <div class="w-12 h-12 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center mb-4">
+                    <span class="material-symbols-outlined">person</span>
+                </div>
+                <p class="text-sm font-medium text-slate-500">Guest predictions</p>
+                <h3 class="text-2xl font-bold text-slate-900">{{ guest_predictions }}</h3>
+            </div>
+        </div>
+
+        <!-- Peak-hour heatmap -->
+        <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm mb-6">
+            <h3 class="font-headline font-bold text-xl mb-1">Peak Congestion Hours</h3>
+            <p class="text-sm text-slate-500 mb-6">% of records congested, by day &amp; hour. Darker red = worse.</p>
+            <div class="overflow-x-auto">
+                <table class="border-separate border-spacing-1">
+                    <thead>
+                        <tr>
+                            <th class="w-10"></th>
+                            {% for cell in heatmap.0.cells %}
+                            <th class="text-[9px] font-medium text-slate-400 w-6">{{ cell.hour }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in heatmap %}
+                        <tr>
+                            <td class="text-[10px] font-bold text-slate-500 pr-2 text-right">{{ row.day }}</td>
+                            {% for cell in row.cells %}
+                            <td class="heat-cell w-6 h-6 rounded"
+                                data-pct="{{ cell.pct|default_if_none:'' }}"
+                                title="{{ row.day }} {{ cell.hour }}:00 — {% if cell.pct is None %}no data{% else %}{{ cell.pct }}% congested ({{ cell.total }} obs){% endif %}"></td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <div class="flex items-center gap-2 mt-4 text-xs text-slate-500">
+                <span>Clear</span>
+                <div class="flex gap-0.5">
+                    <div class="w-5 h-3 rounded" style="background:hsl(120,70%,55%)"></div>
+                    <div class="w-5 h-3 rounded" style="background:hsl(80,70%,55%)"></div>
+                    <div class="w-5 h-3 rounded" style="background:hsl(45,75%,55%)"></div>
+                    <div class="w-5 h-3 rounded" style="background:hsl(20,80%,55%)"></div>
+                    <div class="w-5 h-3 rounded" style="background:hsl(0,75%,50%)"></div>
+                </div>
+                <span>Congested</span>
             </div>
         </div>
 
-        <!-- Main Content (Hidden initially) -->
-        <div id="analytics-content" class="hidden">
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                <!-- Total Requests -->
-                <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                    <div class="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center mb-4">
-                        <span class="material-symbols-outlined">query_stats</span>
-                    </div>
-                    <p class="text-sm font-medium text-slate-500">Total Requests</p>
-                    <h3 class="text-2xl font-bold text-slate-900">{{ total }}</h3>
-                </div>
-
-                <!-- High Traffic -->
-                <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                    <div class="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mb-4">
-                        <span class="material-symbols-outlined">warning</span>
-                    </div>
-                    <p class="text-sm font-medium text-slate-500">High Congestion</p>
-                    <h3 class="text-2xl font-bold text-slate-900">{{ high }}</h3>
-                </div>
-
-                <!-- Medium Traffic -->
-                <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                    <div class="w-12 h-12 bg-yellow-50 text-yellow-600 rounded-2xl flex items-center justify-center mb-4">
-                        <span class="material-symbols-outlined">slow_motion_video</span>
-                    </div>
-                    <p class="text-sm font-medium text-slate-500">Moderate Flow</p>
-                    <h3 class="text-2xl font-bold text-slate-900">{{ medium }}</h3>
-                </div>
-
-                <!-- Low Traffic -->
-                <div class="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                    <div class="w-12 h-12 bg-green-50 text-green-600 rounded-2xl flex items-center justify-center mb-4">
-                        <span class="material-symbols-outlined">check_circle</span>
-                    </div>
-                    <p class="text-sm font-medium text-slate-500">Optimal Flow</p>
-                    <h3 class="text-2xl font-bold text-slate-900">{{ low }}</h3>
-                </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Worst corridors -->
+            <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
+                <h3 class="font-headline font-bold text-xl mb-1">Worst Corridors</h3>
+                <p class="text-sm text-slate-500 mb-6">Routes most often congested (≥20 observations).</p>
+                <canvas id="routesChart" height="260"></canvas>
             </div>
+            <!-- Context impact -->
+            <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
+                <h3 class="font-headline font-bold text-xl mb-1">What Drives Congestion</h3>
+                <p class="text-sm text-slate-500 mb-6">% congested with vs without each condition.</p>
+                <canvas id="contextChart" height="260"></canvas>
+            </div>
+        </div>
 
-            <!-- Charts & More -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="lg:col-span-2 bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-                    <h3 class="font-headline font-bold text-xl mb-6">Congestion Trends</h3>
-                    <div class="h-64 bg-slate-50 rounded-2xl border border-dashed border-slate-200 flex items-center justify-center">
-                        <p class="text-slate-400 text-sm">Chart visualization would render here</p>
-                    </div>
+        <!-- Congestion distribution -->
+        <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm mb-6">
+            <h3 class="font-headline font-bold text-xl mb-6">Overall Congestion Distribution</h3>
+            <div class="max-w-xs mx-auto">
+                <canvas id="distChart" height="220"></canvas>
+            </div>
+        </div>
+
+        {% if is_admin and admin_panel %}
+        <!-- Admin-only operations panel -->
+        <div class="mb-2 flex items-center gap-2">
+            <span class="material-symbols-outlined text-primary">admin_panel_settings</span>
+            <h2 class="font-headline font-bold text-2xl text-primary">Admin Overview</h2>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
+                <h3 class="font-headline font-bold text-xl mb-6">Predictions (last 14 days)</h3>
+                <canvas id="usageChart" height="200"></canvas>
+            </div>
+            <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm">
+                <h3 class="font-headline font-bold text-xl mb-2">Adoption</h3>
+                <p class="text-sm text-slate-500 mb-4">{{ admin_panel.total_users }} registered users</p>
+                <canvas id="adoptionChart" height="200"></canvas>
+            </div>
+        </div>
+
+        <!-- Guest → signup conversion funnel -->
+        <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm mt-6">
+            <h3 class="font-headline font-bold text-xl mb-1">Guest → Signup Conversion</h3>
+            <p class="text-sm text-slate-500 mb-6">How anonymous trial visitors move toward creating an account.</p>
+            <div class="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div class="p-5 rounded-2xl bg-slate-50 text-center">
+                    <p class="text-3xl font-bold text-slate-900">{{ admin_panel.funnel_tried }}</p>
+                    <p class="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wide">Tried (sessions)</p>
                 </div>
-                <div class="bg-white p-8 rounded-3xl border border-slate-100 shadow-sm">
-                    <h3 class="font-headline font-bold text-xl mb-6">Distribution</h3>
-                    <div class="space-y-4">
-                        <div>
-                            <div class="flex justify-between text-xs font-bold mb-1">
-                                <span>HIGH</span>
-                                <span>{{ high }}</span>
-                            </div>
-                            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                                <div class="bg-red-500 h-full" style="width: 25%"></div>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="flex justify-between text-xs font-bold mb-1">
-                                <span>MEDIUM</span>
-                                <span>{{ medium }}</span>
-                            </div>
-                            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                                <div class="bg-yellow-500 h-full" style="width: 45%"></div>
-                            </div>
-                        </div>
-                        <div>
-                            <div class="flex justify-between text-xs font-bold mb-1">
-                                <span>LOW</span>
-                                <span>{{ low }}</span>
-                            </div>
-                            <div class="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                                <div class="bg-green-500 h-full" style="width: 30%"></div>
-                            </div>
-                        </div>
-                    </div>
+                <div class="p-5 rounded-2xl bg-orange-50 text-center">
+                    <p class="text-3xl font-bold text-secondary">{{ admin_panel.funnel_wall }}</p>
+                    <p class="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wide">Hit the wall</p>
+                </div>
+                <div class="p-5 rounded-2xl bg-green-50 text-center">
+                    <p class="text-3xl font-bold text-green-600">{{ admin_panel.funnel_converted }}</p>
+                    <p class="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wide">Converted</p>
+                </div>
+                <div class="p-5 rounded-2xl bg-primary/5 text-center">
+                    <p class="text-3xl font-bold text-primary">{{ admin_panel.conversion_rate }}%</p>
+                    <p class="text-xs font-semibold text-slate-500 mt-1 uppercase tracking-wide">Wall → signup</p>
                 </div>
             </div>
         </div>
+        {% endif %}
     </div>
 </div>
+
+{{ worst_routes|json_script:"data-routes" }}
+{{ context_impact|json_script:"data-context" }}
+<div data-dist="{{ obs_high }},{{ obs_medium }},{{ obs_low }}" hidden></div>
+{% if is_admin and admin_panel %}
+{{ admin_panel.usage|json_script:"data-usage" }}
+<div data-adoption="{{ admin_panel.registered_predictions }},{{ admin_panel.guest_predictions }}" hidden></div>
+{% endif %}
 {% endblock %}
 
 {% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
-        // Simulate data loading
-        setTimeout(() => {
-            const skeleton = document.getElementById('analytics-skeleton');
-            const content = document.getElementById('analytics-content');
-            if (skeleton) skeleton.classList.add('hidden');
-            if (content) {
-                content.classList.remove('hidden');
-                content.classList.add('animate-fade-in');
-            }
-        }, 800);
+(function () {
+    // Colour each heatmap cell green→red by its congestion %.
+    document.querySelectorAll('.heat-cell').forEach(function (c) {
+        var raw = c.getAttribute('data-pct');
+        if (raw === '') { c.style.background = '#f1f5f9'; return; } // no data
+        var pct = parseInt(raw, 10);
+        var hue = 120 - Math.round(1.2 * pct);          // 120=green .. 0=red
+        c.style.background = 'hsl(' + hue + ',75%,52%)';
     });
+
+    var read = function (id) { var el = document.getElementById(id); return el ? JSON.parse(el.textContent) : null; };
+
+    // Worst corridors (horizontal bar)
+    var routes = read('data-routes') || [];
+    if (routes.length) {
+        new Chart(document.getElementById('routesChart'), {
+            type: 'bar',
+            data: {
+                labels: routes.map(function (r) { return r.route; }),
+                datasets: [{ label: '% congested', data: routes.map(function (r) { return r.pct; }), backgroundColor: '#ef4444', borderRadius: 6 }]
+            },
+            options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { max: 100, ticks: { callback: function (v) { return v + '%'; } } } } }
+        });
+    }
+
+    // Context impact (grouped bar)
+    var ctx = read('data-context') || [];
+    if (ctx.length) {
+        new Chart(document.getElementById('contextChart'), {
+            type: 'bar',
+            data: {
+                labels: ctx.map(function (c) { return c.factor; }),
+                datasets: [
+                    { label: 'With', data: ctx.map(function (c) { return c['with']; }), backgroundColor: '#ef4444', borderRadius: 6 },
+                    { label: 'Without', data: ctx.map(function (c) { return c['without']; }), backgroundColor: '#94a3b8', borderRadius: 6 }
+                ]
+            },
+            options: { plugins: { legend: { position: 'bottom' } }, scales: { y: { max: 100, ticks: { callback: function (v) { return v + '%'; } } } } }
+        });
+    }
+
+    // Congestion distribution (doughnut)
+    var distEl = document.querySelector('[data-dist]');
+    if (distEl) {
+        var d = distEl.getAttribute('data-dist').split(',').map(Number);
+        new Chart(document.getElementById('distChart'), {
+            type: 'doughnut',
+            data: { labels: ['High', 'Medium', 'Low'], datasets: [{ data: d, backgroundColor: ['#ef4444', '#eab308', '#22c55e'] }] },
+            options: { plugins: { legend: { position: 'bottom' } } }
+        });
+    }
+
+    // Admin: usage line
+    var usage = read('data-usage');
+    if (usage) {
+        new Chart(document.getElementById('usageChart'), {
+            type: 'line',
+            data: {
+                labels: usage.map(function (u) { return u.date; }),
+                datasets: [{ label: 'Predictions', data: usage.map(function (u) { return u.count; }), borderColor: '#000666', backgroundColor: 'rgba(0,6,102,0.08)', fill: true, tension: 0.3 }]
+            },
+            options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        });
+    }
+
+    // Admin: adoption doughnut
+    var adEl = document.querySelector('[data-adoption]');
+    if (adEl) {
+        var a = adEl.getAttribute('data-adoption').split(',').map(Number);
+        new Chart(document.getElementById('adoptionChart'), {
+            type: 'doughnut',
+            data: { labels: ['Registered', 'Guest'], datasets: [{ data: a, backgroundColor: ['#000666', '#fd6c00'] }] },
+            options: { plugins: { legend: { position: 'bottom' } } }
+        });
+    }
+})();
 </script>
 {% endblock %}
