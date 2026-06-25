@@ -1,5 +1,14 @@
 import re
+
+from django.core.cache import cache
+
 from traffic_context.directions_client import DirectionsClient, DirectionsError, parse_leg_metrics
+
+# Each Directions lookup is a paid Google call. Live traffic only changes minute
+# to minute, so caching identical (origin, destination, time-bucket) lookups for
+# a short window cuts both cost and latency without users noticing staleness.
+_CACHE_TTL = 120  # seconds
+
 
 class GoogleMapsService:
     """
@@ -10,6 +19,17 @@ class GoogleMapsService:
     def __init__(self):
         # Single shared Directions client (handles the API key + HTTP call).
         self.client = DirectionsClient()
+
+    @staticmethod
+    def _cache_key(origin, destination, departure_time):
+        # Bucket "now" into 2-minute windows; future timestamps into the hour
+        # they fall in, so identical forecasts reuse one API call.
+        if departure_time == "now":
+            import time
+            bucket = int(time.time() // _CACHE_TTL)
+        else:
+            bucket = int(departure_time) // 3600
+        return f"directions:{origin.strip().lower()}|{destination.strip().lower()}|{bucket}"
 
     def get_route_details(self, origin, destination, departure_time="now"):
         """
@@ -23,6 +43,11 @@ class GoogleMapsService:
         Returns:
             dict: Structured JSON with route details or error message
         """
+        cache_key = self._cache_key(origin, destination, departure_time)
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
             origin_clean, dest_clean, data = self.client.fetch(
                 origin, destination, departure_time, alternatives=True
@@ -67,7 +92,7 @@ class GoogleMapsService:
                 })
 
             # Return the first route as primary, and others as alternatives
-            return {
+            result = {
                 "status": "success",
                 "origin": origin_clean,
                 "destination": dest_clean,
@@ -75,6 +100,8 @@ class GoogleMapsService:
                 "alternatives": routes[1:] if len(routes) > 1 else [],
                 "is_prediction": departure_time != "now"
             }
+            cache.set(cache_key, result, _CACHE_TTL)  # only successful lookups cached
+            return result
 
         except Exception as e:
             # Handle unexpected errors (network issues, etc.)

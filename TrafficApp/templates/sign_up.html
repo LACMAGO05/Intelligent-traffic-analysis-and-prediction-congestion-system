@@ -73,6 +73,13 @@
               <p class="text-[10px] text-slate-400 font-medium px-1">Must contain at least 12 characters</p>
             </div>
 
+            <!-- Consent -->
+            <label class="flex items-start gap-2 text-xs text-slate-500 leading-relaxed cursor-pointer">
+              <input type="checkbox" name="consent" value="yes" required class="mt-0.5 accent-primary" />
+              <span>I agree to the collection and use of my data (routes, approximate location, device info) as described in the
+                <a class="underline text-primary hover:text-primary-container" href="{% url 'privacy' %}" target="_blank">Privacy Policy</a>.</span>
+            </label>
+
             <!-- Primary Action -->
             <button class="w-full bg-primary py-4 rounded-lg text-white font-headline font-bold text-lg shadow-lg hover:shadow-primary/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2" type="submit">
               <span>Create Account</span>
@@ -91,9 +98,7 @@
         <!-- Compliance Micro-copy -->
         <p class="mt-8 text-center text-slate-400 text-xs leading-relaxed max-w-[320px] mx-auto">
           By registering, you acknowledge the
-          <a class="underline hover:text-slate-600" href="#">Privacy Policy</a>
-          and
-          <a class="underline hover:text-slate-600" href="#">Terms of Service</a>.
+          <a class="underline hover:text-slate-600" href="{% url 'privacy' %}">Privacy Policy</a>.
         </p>
       </div>
     </section>

@@ -195,7 +195,19 @@ DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 # /accounts/login/ which this project does not route (the sign-in page is /login/).
 LOGIN_URL = "/login/"
 LOGIN_REDIRECT_URL = "predict"
-# EMAIL_BACKEND is not set, defaulting to SMTP in Django, but we use SendGrid API via custom services.
+
+# ── Email: single provider (SendGrid) ─────────────────────────────────────────
+# Custom flows (OTP, welcome, contact, gridlock alerts) call the SendGrid HTTP
+# API directly. Django's own machinery (password reset) uses send_mail, so we
+# point its SMTP backend at SendGrid too — one provider, no Gmail SMTP (which has
+# hard daily limits and isn't production-grade). The SMTP username is the literal
+# string "apikey"; the password is the SendGrid API key.
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = "smtp.sendgrid.net"
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = "apikey"
+EMAIL_HOST_PASSWORD = os.getenv("SENDGRID_API_KEY")
 
 
 if not DEBUG:

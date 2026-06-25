@@ -20,11 +20,12 @@ from .models import (
     AnalyticsEvent, RouteWatch, PushSubscription,
 )
 from .services.push_service import notify_user
+from .services.outbox import enqueue
 from django.core.paginator import Paginator
 from .services.hybrid_prediction_service import HybridPredictionService
 
 from django.http import JsonResponse
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Avg
 from django.db.models.functions import TruncDate
 from django_ratelimit.decorators import ratelimit
 from django.contrib.auth.hashers import make_password
@@ -168,6 +169,10 @@ def contact_view(request):
 
     return redirect('landing')
 
+def privacy_view(request):
+    return render(request, "privacy.html")
+
+
 def landing_view(request):
     if request.user.is_authenticated:
         return redirect("predict")
@@ -259,11 +264,12 @@ def verify_device(request):
     del request.session['pending_login']
     login(request, user)
 
-    # Notify the owner of the new-device sign-in (off the request path) so they
-    # can react if it wasn't them.
-    run_async(
-        send_new_device_login_alert,
-        user.email, user.username,
+    # Notify the owner of the new-device sign-in (durably, off the request path)
+    # so they can react if it wasn't them.
+    enqueue(
+        "send_new_device_login_alert",
+        user_email=user.email,
+        username=user.username,
         ip=_client_ip(request),
         user_agent=request.META.get("HTTP_USER_AGENT", "")[:200],
         when=timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M %Z"),
@@ -284,6 +290,9 @@ def signup_view(request):
 
         if not username or not email or not password:
             messages.error(request, 'All fields are required.')
+            return redirect('signup')
+        if request.POST.get('consent') != 'yes':
+            messages.error(request, 'You must agree to the Privacy Policy to register.')
             return redirect('signup')
         if len(password) < 12:
             messages.error(request, 'Password must be at least 12 characters.')
@@ -439,8 +448,8 @@ def verify_otp(request):
     if request.session.pop('saw_wall', False):
         _log_event(request, AnalyticsEvent.EVENT_GUEST_CONVERTED, user=user)
 
-    # Welcome email is non-critical; send it off the request path.
-    run_async(send_welcome_email, user.email, user.username)
+    # Welcome email is non-critical; queue it durably (worker delivers it).
+    enqueue("send_welcome_email", user_email=user.email, username=user.username)
     messages.success(request, 'Your account has been created. Please log in.')
     return redirect('signin')
 
@@ -569,6 +578,7 @@ def predict_view(request):
                 travel_time=prediction_data.get("travel_time"),
                 speed=prediction_data.get("speed"),
                 congestion=prediction_data.get("congestion") or "",
+                confidence=prediction_data.get("confidence_score"),
                 is_prediction=bool(prediction_data.get("is_prediction")),
             )
 
@@ -802,6 +812,19 @@ def analytics_view(request):
             funnel_converted = ev.filter(event=AnalyticsEvent.EVENT_GUEST_CONVERTED).count()
             conversion_rate = round(100 * funnel_converted / funnel_wall) if funnel_wall else 0
 
+            # Model drift: average prediction confidence per day (a falling trend
+            # means the model is increasingly unsure → time to retrain/inspect).
+            drift_qs = (
+                PredictionLog.objects.filter(created_at__gte=since, confidence__isnull=False)
+                .annotate(d=TruncDate("created_at"))
+                .values("d")
+                .annotate(avg=Avg("confidence"))
+                .order_by("d")
+            )
+            confidence_trend = [
+                {"date": r["d"].strftime("%b %d"), "avg": round(r["avg"], 1)} for r in drift_qs
+            ]
+
             admin_panel = {
                 "usage": [{"date": u["d"].strftime("%b %d"), "count": u["c"]} for u in usage_qs],
                 "total_users": User.objects.count(),
@@ -811,6 +834,7 @@ def analytics_view(request):
                 "funnel_wall": funnel_wall,
                 "funnel_converted": funnel_converted,
                 "conversion_rate": conversion_rate,
+                "confidence_trend": confidence_trend,
             }
 
         context = {
@@ -912,6 +936,20 @@ def alerts_view(request):
                 user=request.user, pk=request.POST.get("watch_id")
             ).delete()
             messages.success(request, "Route removed from your alerts.")
+            return redirect("alerts")
+
+        if action == "toggle":
+            watch = RouteWatch.objects.filter(
+                user=request.user, pk=request.POST.get("watch_id")
+            ).first()
+            if watch:
+                watch.active = not watch.active
+                watch.save(update_fields=["active"])
+                messages.success(
+                    request,
+                    "Alerts resumed for this route." if watch.active
+                    else "Alerts paused for this route.",
+                )
             return redirect("alerts")
 
         if action == "test":

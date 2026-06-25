@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Privacy Policy | Traffik Intelligence{% endblock %}
+
+{% block content %}
+<div class="p-4 md:p-8 pt-24">
+  <div class="max-w-3xl mx-auto bg-white rounded-3xl border border-slate-100 shadow-sm p-8 md:p-10">
+    <h1 class="text-3xl font-headline font-bold text-primary mb-2">Privacy Policy</h1>
+    <p class="text-slate-500 mb-8">How Traffik Intelligence collects, uses and protects your data.</p>
+
+    <div class="space-y-6 text-slate-700 leading-relaxed">
+      <section>
+        <h2 class="font-headline font-bold text-lg text-slate-900 mb-1">What we collect</h2>
+        <ul class="list-disc pl-5 space-y-1">
+          <li><strong>Account data:</strong> username, email, and a securely hashed password.</li>
+          <li><strong>Route data:</strong> the origins and destinations you predict or watch for alerts.</li>
+          <li><strong>Approximate location:</strong> derived from your IP address for new-device sign-in alerts.</li>
+          <li><strong>Device info:</strong> browser/user-agent and push-notification subscriptions you enable.</li>
+          <li><strong>Usage data:</strong> predictions made and basic analytics events.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 class="font-headline font-bold text-lg text-slate-900 mb-1">How we use it</h2>
+        <p>To generate traffic predictions, send the gridlock and security alerts you opt into, secure your account against unauthorised access, and improve the service through aggregate analytics. We do not sell your data.</p>
+      </section>
+
+      <section>
+        <h2 class="font-headline font-bold text-lg text-slate-900 mb-1">Third parties</h2>
+        <p>We share the minimum necessary data with Google Maps (routing), OpenWeatherMap (weather context), and SendGrid (email delivery). These providers process data under their own policies.</p>
+      </section>
+
+      <section>
+        <h2 class="font-headline font-bold text-lg text-slate-900 mb-1">Your choices</h2>
+        <p>You can remove watched routes and trusted devices, disable notifications, and request account deletion at any time by contacting us. Logging out signs you out of all devices.</p>
+      </section>
+
+      <section>
+        <h2 class="font-headline font-bold text-lg text-slate-900 mb-1">Contact</h2>
+        <p>Questions about your data? Reach us at <a class="text-primary underline" href="mailto:traffik147@gmail.com">traffik147@gmail.com</a>.</p>
+      </section>
+
+      <p class="text-sm text-slate-400 pt-4 border-t border-slate-100">This is a student research project (University of Buea). Data is used for academic and service-improvement purposes only.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

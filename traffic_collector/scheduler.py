@@ -40,7 +40,23 @@ class TrafficScheduler:
             IntervalTrigger(minutes=20),
             id='gridlock_alert_job',
         )
+        # Drain the durable email/task outbox frequently so queued mail goes out
+        # promptly and failed sends are retried.
+        self.scheduler.add_job(
+            self.process_email_outbox,
+            IntervalTrigger(minutes=1),
+            id='email_outbox_job',
+        )
         self.scheduler.start()
+
+    def process_email_outbox(self):
+        try:
+            from TrafficApp.services.outbox import process_outbox
+            processed, failed = process_outbox()
+            if processed or failed:
+                logger.info(f"Outbox drained: {processed} sent, {failed} failed/retry.")
+        except Exception as e:
+            logger.error(f"Email outbox job error: {e}")
 
     def run_gridlock_alerts(self):
         # Imported lazily so Django's app registry is ready when this runs.

@@ -127,6 +127,13 @@
             </div>
         </div>
 
+        <!-- Model confidence / drift -->
+        <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm mt-6">
+            <h3 class="font-headline font-bold text-xl mb-1">Model Confidence (drift)</h3>
+            <p class="text-sm text-slate-500 mb-6">Average prediction confidence per day. A steady fall suggests the model is going stale.</p>
+            <canvas id="confidenceChart" height="200"></canvas>
+        </div>
+
         <!-- Guest → signup conversion funnel -->
         <div class="bg-white p-6 md:p-8 rounded-3xl border border-slate-100 shadow-sm mt-6">
             <h3 class="font-headline font-bold text-xl mb-1">Guest → Signup Conversion</h3>
@@ -159,6 +166,7 @@
 <div data-dist="{{ obs_high }},{{ obs_medium }},{{ obs_low }}" hidden></div>
 {% if is_admin and admin_panel %}
 {{ admin_panel.usage|json_script:"data-usage" }}
+{{ admin_panel.confidence_trend|json_script:"data-confidence" }}
 <div data-adoption="{{ admin_panel.registered_predictions }},{{ admin_panel.guest_predictions }}" hidden></div>
 {% endif %}
 {% endblock %}
@@ -228,6 +236,19 @@
                 datasets: [{ label: 'Predictions', data: usage.map(function (u) { return u.count; }), borderColor: '#000666', backgroundColor: 'rgba(0,6,102,0.08)', fill: true, tension: 0.3 }]
             },
             options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+        });
+    }
+
+    // Admin: model confidence / drift line
+    var conf = read('data-confidence');
+    if (conf && conf.length) {
+        new Chart(document.getElementById('confidenceChart'), {
+            type: 'line',
+            data: {
+                labels: conf.map(function (c) { return c.date; }),
+                datasets: [{ label: 'Avg confidence %', data: conf.map(function (c) { return c.avg; }), borderColor: '#fd6c00', backgroundColor: 'rgba(253,108,0,0.08)', fill: true, tension: 0.3 }]
+            },
+            options: { plugins: { legend: { display: false } }, scales: { y: { min: 0, max: 100, ticks: { callback: function (v) { return v + '%'; } } } } }
         });
     }
 

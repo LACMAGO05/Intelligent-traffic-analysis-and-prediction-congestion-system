@@ -81,18 +81,33 @@
                 {% for w in watches %}
                 <li class="flex items-center justify-between gap-4 p-5">
                     <div>
-                        <p class="font-bold text-slate-900">{{ w.origin }} → {{ w.destination }}</p>
+                        <p class="font-bold text-slate-900 flex items-center gap-2">
+                            {{ w.origin }} → {{ w.destination }}
+                            {% if w.active %}
+                            <span class="text-[10px] font-bold uppercase tracking-wide bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Active</span>
+                            {% else %}
+                            <span class="text-[10px] font-bold uppercase tracking-wide bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full">Paused</span>
+                            {% endif %}
+                        </p>
                         <p class="text-sm text-slate-500 mt-0.5">
                             {% if w.days %}Days: {{ w.days }}{% else %}Every day{% endif %}
                             {% if w.window_start and w.window_end %} · {{ w.window_start|time:"H:i" }}–{{ w.window_end|time:"H:i" }}{% endif %}
                         </p>
                     </div>
-                    <form method="post">
-                        {% csrf_token %}
-                        <input type="hidden" name="action" value="delete" />
-                        <input type="hidden" name="watch_id" value="{{ w.pk }}" />
-                        <button type="submit" class="text-sm font-semibold text-red-600 hover:text-white hover:bg-red-600 border border-red-200 hover:border-red-600 rounded-lg px-3 py-2 transition-colors">Remove</button>
-                    </form>
+                    <div class="flex gap-2">
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="toggle" />
+                            <input type="hidden" name="watch_id" value="{{ w.pk }}" />
+                            <button type="submit" class="text-sm font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 transition-colors">{% if w.active %}Pause{% else %}Resume{% endif %}</button>
+                        </form>
+                        <form method="post">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="delete" />
+                            <input type="hidden" name="watch_id" value="{{ w.pk }}" />
+                            <button type="submit" class="text-sm font-semibold text-red-600 hover:text-white hover:bg-red-600 border border-red-200 hover:border-red-600 rounded-lg px-3 py-2 transition-colors">Remove</button>
+                        </form>
+                    </div>
                 </li>
                 {% endfor %}
             </ul>

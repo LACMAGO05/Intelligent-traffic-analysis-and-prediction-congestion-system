@@ -79,6 +79,37 @@ class TrafficRecord(models.Model):
         return f"{self.route} @ {self.timestamp} ({self.congestion})"
 
 
+class TaskOutbox(models.Model):
+    """
+    Durable queue for fire-and-forget work (currently transactional emails).
+
+    Replaces the in-process thread pool: a task is persisted here, then the
+    background worker drains it with retries. This means a dyno restart can't
+    silently lose a welcome/alert email. ``payload`` must be JSON-serialisable
+    and ``task`` must name an entry in the outbox TASK_REGISTRY.
+    """
+    STATUS_PENDING = "pending"
+    STATUS_DONE = "done"
+    STATUS_FAILED = "failed"
+
+    task = models.CharField(max_length=80)
+    payload = models.JSONField(default=dict)
+    status = models.CharField(max_length=10, default=STATUS_PENDING, db_index=True)
+    attempts = models.IntegerField(default=0)
+    last_error = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["status", "created_at"], name="idx_outbox_status"),
+        ]
+
+    def __str__(self):
+        return f"{self.task} [{self.status}]"
+
+
 class PushSubscription(models.Model):
     """
     A browser Web Push subscription for a user (one per device/browser).
@@ -245,6 +276,9 @@ class PredictionLog(models.Model):
     travel_time = models.FloatField(null=True, blank=True)
     speed = models.FloatField(null=True, blank=True)
     congestion = models.CharField(max_length=16, blank=True, default="")
+    # ML model confidence (%) for this prediction. Persisted so model drift can
+    # be monitored over time (a falling trend flags a degrading/stale model).
+    confidence = models.FloatField(null=True, blank=True)
     is_prediction = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
