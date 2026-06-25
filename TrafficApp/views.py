@@ -15,7 +15,11 @@ from .services.email_service import (
     send_device_verification_email, send_new_device_login_alert,
 )
 from .tasks import run_async
-from .models import ChatMessage, ChatThread, PredictionLog, TrustedDevice, TrafficRecord, AnalyticsEvent
+from .models import (
+    ChatMessage, ChatThread, PredictionLog, TrustedDevice, TrafficRecord,
+    AnalyticsEvent, RouteWatch, PushSubscription,
+)
+from .services.push_service import notify_user
 from django.core.paginator import Paginator
 from .services.hybrid_prediction_service import HybridPredictionService
 
@@ -29,6 +33,7 @@ from .forms import ContactForm, CustomPasswordResetForm
 import traceback   #lets us print the real error to terminal
 import os
 import csv
+import json
 from django.utils import timezone
 import datetime
 
@@ -113,6 +118,24 @@ def _remember_device(request, response, user):
 
 from django.contrib.auth import views as auth_views
 from django.urls import reverse_lazy
+
+
+def healthz(request):
+    """
+    Liveness/readiness probe for Render and uptime monitors.
+
+    Returns 200 only if the app is up AND the database answers; 503 otherwise,
+    so a deploy that boots but can't reach Postgres is correctly marked unhealthy.
+    """
+    from django.db import connection
+    try:
+        with connection.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        return JsonResponse({"status": "ok"})
+    except Exception:
+        logger.exception("Health check failed")
+        return JsonResponse({"status": "error"}, status=503)
 
 
 def contact_view(request):
@@ -809,3 +832,118 @@ def analytics_view(request):
     except Exception:
         logger.exception("Failed to load analytics")
         return JsonResponse({"error": "Failed to load analytics"}, status=500)
+
+
+# ── Web Push: gridlock alerts ─────────────────────────────────────────────────
+
+# The service worker that displays push notifications. Served from the site root
+# so its scope covers the whole app (a worker's scope can't exceed its own path).
+_SERVICE_WORKER_JS = """
+self.addEventListener('push', function (event) {
+  let data = {};
+  try { data = event.data.json(); } catch (e) { data = { title: 'Traffik', body: event.data ? event.data.text() : '' }; }
+  const options = {
+    body: data.body || '',
+    tag: data.tag,
+    data: { url: data.url || '/' },
+    requireInteraction: true,
+    vibrate: [100, 50, 100]
+  };
+  event.waitUntil(self.registration.showNotification(data.title || 'Traffik Alert', options));
+});
+
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || '/';
+  event.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    for (const c of list) { if (c.url.includes(url) && 'focus' in c) return c.focus(); }
+    if (clients.openWindow) return clients.openWindow(url);
+  }));
+});
+""".strip()
+
+
+def service_worker(request):
+    """Serve the push service worker at the site root with the right headers."""
+    from django.http import HttpResponse
+    resp = HttpResponse(_SERVICE_WORKER_JS, content_type="application/javascript")
+    resp["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+@login_required
+def save_push_subscription(request):
+    """Store the browser's push subscription (sent as JSON by the frontend)."""
+    if request.method != "POST":
+        return JsonResponse({"error": "POST required"}, status=405)
+    try:
+        data = json.loads(request.body or "{}")
+        sub = data.get("subscription", data)
+        endpoint = sub["endpoint"]
+        keys = sub["keys"]
+        PushSubscription.objects.update_or_create(
+            endpoint=endpoint,
+            defaults={
+                "user": request.user,
+                "p256dh": keys["p256dh"],
+                "auth": keys["auth"],
+                "user_agent": request.META.get("HTTP_USER_AGENT", "")[:400],
+            },
+        )
+        return JsonResponse({"status": "ok"})
+    except (KeyError, ValueError, TypeError):
+        return JsonResponse({"error": "Invalid subscription"}, status=400)
+
+
+def _parse_hhmm(value):
+    try:
+        return datetime.datetime.strptime(value, "%H:%M").time()
+    except (ValueError, TypeError):
+        return None
+
+
+@login_required
+def alerts_view(request):
+    """Manage watched routes and enable push notifications for gridlock alerts."""
+    if request.method == "POST":
+        action = request.POST.get("action")
+        if action == "delete":
+            RouteWatch.objects.filter(
+                user=request.user, pk=request.POST.get("watch_id")
+            ).delete()
+            messages.success(request, "Route removed from your alerts.")
+            return redirect("alerts")
+
+        if action == "test":
+            sent = notify_user(request.user, {
+                "title": "🚦 Test alert",
+                "body": "Your gridlock alerts are working. We'll warn you ~1h before congestion.",
+                "url": "/alerts/",
+            })
+            messages.success(request, "Test notification sent." if sent
+                             else "No subscribed device yet — enable notifications first.")
+            return redirect("alerts")
+
+        origin = sanitize_location(request.POST.get("origin", ""))
+        destination = sanitize_location(request.POST.get("destination", ""))
+        if not origin or not destination:
+            messages.error(request, "Please provide both origin and destination.")
+            return redirect("alerts")
+        days = ",".join(d for d in request.POST.getlist("days") if d.isdigit())
+        RouteWatch.objects.update_or_create(
+            user=request.user, origin=origin, destination=destination,
+            defaults={
+                "days": days,
+                "window_start": _parse_hhmm(request.POST.get("window_start")),
+                "window_end": _parse_hhmm(request.POST.get("window_end")),
+                "active": True,
+            },
+        )
+        messages.success(request, "Route added — we'll alert you before gridlock.")
+        return redirect("alerts")
+
+    return render(request, "alerts.html", {
+        "watches": request.user.route_watches.all(),
+        "vapid_public_key": settings.VAPID_PUBLIC_KEY,
+        "has_subscription": request.user.push_subscriptions.exists(),
+    })

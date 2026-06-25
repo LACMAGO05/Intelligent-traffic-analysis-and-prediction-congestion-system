@@ -50,6 +50,25 @@ ALLOWED_HOSTS = os.getenv(
 GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY') or os.getenv('GOOGLE_CLIENT_SECRET')
 GOOGLE_CLIENT_SECRET = GOOGLE_MAPS_API_KEY  # backward-compatible alias
 
+# ── Web Push (VAPID) ──────────────────────────────────────────────────────────
+# Generated once with py_vapid; the public key is exposed to the browser as the
+# applicationServerKey, the private key signs push requests server-side.
+VAPID_PUBLIC_KEY = os.getenv('VAPID_PUBLIC_KEY')
+VAPID_PRIVATE_KEY = os.getenv('VAPID_PRIVATE_KEY')
+VAPID_SUBJECT = os.getenv('VAPID_SUBJECT', 'mailto:admin@example.com')
+
+# ── Error monitoring (Sentry) ─────────────────────────────────────────────────
+# No-op unless SENTRY_DSN is set, so local/dev runs are unaffected. In production
+# set SENTRY_DSN to capture every unhandled exception with full context.
+SENTRY_DSN = os.getenv('SENTRY_DSN')
+if SENTRY_DSN:
+    import sentry_sdk
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        traces_sample_rate=0.1,
+        send_default_pii=False,  # don't ship user PII to Sentry
+    )
+
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
 SUPABASE_URL = os.getenv('SUPABASE_URL')
@@ -114,8 +133,15 @@ WSGI_APPLICATION = "TrafficPro.wsgi.application"
 
 
 
+# conn_max_age keeps Postgres connections alive across requests (instead of
+# opening a new one every request, which exhausts the pooler under load).
+# conn_health_checks discards a connection that died while idle before reusing it.
 DATABASES = {
-    'default': dj_database_url.parse(os.getenv("DATABASE_URL"))
+    'default': dj_database_url.parse(
+        os.getenv("DATABASE_URL"),
+        conn_max_age=600,
+        conn_health_checks=True,
+    )
 }
 
 # Password validation

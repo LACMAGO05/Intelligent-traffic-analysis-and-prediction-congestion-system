@@ -33,7 +33,24 @@ class TrafficScheduler:
     def start(self):
         logger.info("Starting Traffic Scheduler...")
         self.schedule_next()
+        # Proactive gridlock alerts: independent fixed-interval job that forecasts
+        # ~1h ahead for every watched route and pushes "leave earlier" alerts.
+        self.scheduler.add_job(
+            self.run_gridlock_alerts,
+            IntervalTrigger(minutes=20),
+            id='gridlock_alert_job',
+        )
         self.scheduler.start()
+
+    def run_gridlock_alerts(self):
+        # Imported lazily so Django's app registry is ready when this runs.
+        try:
+            from TrafficApp.services.alert_job import run_gridlock_alerts
+            count = run_gridlock_alerts()
+            if count:
+                logger.info(f"Sent {count} gridlock alert(s).")
+        except Exception as e:
+            logger.error(f"Gridlock alert job error: {e}")
 
     def schedule_next(self):
         interval = self.get_adaptive_interval()

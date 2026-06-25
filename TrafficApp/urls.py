@@ -2,6 +2,7 @@ from django.urls import path
 from django.contrib.auth import views as auth_views
 from . import views
 urlpatterns = [
+    path('healthz/', views.healthz, name='healthz'),
     path('', views.landing_view, name='landing'),
     path('login/', views.signin_view, name='signin'),
     path('signup/', views.signup_view, name='signup'),
@@ -10,6 +11,9 @@ urlpatterns = [
     path("otp/", views.verify_otp, name="otp"),
     path("verify-device/", views.verify_device, name="verify_device"),
     path("devices/", views.devices_view, name="devices"),
+    path("alerts/", views.alerts_view, name="alerts"),
+    path("push/subscribe/", views.save_push_subscription, name="push_subscribe"),
+    path("sw.js", views.service_worker, name="service_worker"),
     path("predict/", views.predict_view, name="predict"),
     # path("alerts/", views.get_gridlock_alerts, name="alerts"),
     path("chat-history/", views.chat_history_view, name="chat_history"),

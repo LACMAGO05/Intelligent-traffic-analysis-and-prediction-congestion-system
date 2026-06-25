@@ -27,3 +27,5 @@ lightgbm==4.6.0
 joblib==1.5.3
 holidays==0.96
 APScheduler==3.11.2
+pywebpush==2.3.0
+sentry-sdk==2.20.0

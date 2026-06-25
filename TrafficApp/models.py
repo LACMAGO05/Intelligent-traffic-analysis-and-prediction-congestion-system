@@ -79,6 +79,89 @@ class TrafficRecord(models.Model):
         return f"{self.route} @ {self.timestamp} ({self.congestion})"
 
 
+class PushSubscription(models.Model):
+    """
+    A browser Web Push subscription for a user (one per device/browser).
+
+    Stores the endpoint and the two keys the Push API hands us at subscribe
+    time; these are what ``pywebpush`` needs to deliver a notification, even
+    when the site's tab is closed.
+    """
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="push_subscriptions"
+    )
+    endpoint = models.URLField(max_length=600, unique=True)
+    p256dh = models.CharField(max_length=255)
+    auth = models.CharField(max_length=255)
+    user_agent = models.CharField(max_length=400, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"PushSubscription({self.user.username})"
+
+
+class RouteWatch(models.Model):
+    """
+    A route a user explicitly wants gridlock alerts for.
+
+    The background alert job forecasts each active watch ~1 hour ahead and sends
+    a push notification if a gridlock is likely (and not already alerted). Days
+    are stored as a comma-separated list of weekday numbers (0=Mon); empty means
+    every day. The optional time window narrows alerts to a commute period.
+    """
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="route_watches"
+    )
+    origin = models.CharField(max_length=255)
+    destination = models.CharField(max_length=255)
+    # "" = every day; otherwise e.g. "0,1,2,3,4" for weekdays.
+    days = models.CharField(max_length=20, blank=True, default="")
+    window_start = models.TimeField(null=True, blank=True)
+    window_end = models.TimeField(null=True, blank=True)
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "origin", "destination"], name="uniq_user_route_watch"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username}: {self.origin}→{self.destination}"
+
+
+class TrafficAlert(models.Model):
+    """
+    Log of a gridlock alert already sent — used to deduplicate so a user is not
+    notified repeatedly for the same predicted congestion window.
+    """
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="traffic_alerts"
+    )
+    route_watch = models.ForeignKey(
+        RouteWatch, on_delete=models.CASCADE, related_name="alerts", null=True, blank=True
+    )
+    route = models.CharField(max_length=255)
+    # The predicted congestion time this alert was about (truncated to the hour),
+    # so re-runs within the same window don't re-notify.
+    alert_for = models.DateTimeField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-sent_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "route", "alert_for"], name="uniq_alert_window"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Alert {self.route} @ {self.alert_for:%Y-%m-%d %H:%M} → {self.user.username}"
+
+
 class AnalyticsEvent(models.Model):
     """
     Lightweight product-analytics event log — one row per event.
