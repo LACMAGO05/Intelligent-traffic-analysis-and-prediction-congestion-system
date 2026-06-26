@@ -461,6 +461,16 @@ function constructBotReply(trafficData, timestamp) {
         statusEmoji = "🔴";
     }
 
+    // Derive origin/destination from either the live response (departure/
+    // destination) or older saved rows (route "A-B"); guard rich fields so a
+    // missing one can't blank or crash the panel.
+    const o = trafficData.departure || (trafficData.route ? trafficData.route.split('-')[0] : 'Origin');
+    const d = trafficData.destination || (trafficData.route ? trafficData.route.split('-')[1] : 'Destination');
+    const risk = trafficData.risk_analysis || { level: 'Low', stability: 'Stable' };
+    const ctx = trafficData.context_analysis || { weather: 'N/A', school_rush: 'No', office_rush: 'No' };
+    const reasoning = Array.isArray(trafficData.ai_reasoning) ? trafficData.ai_reasoning : [];
+    const pressure = (typeof trafficData.traffic_pressure_score === 'number') ? trafficData.traffic_pressure_score : 0;
+
     let botReply = `
         <div class="flex flex-col gap-6 w-full font-sans text-on-surface">
             <div class="flex items-center justify-between">
@@ -481,7 +491,7 @@ function constructBotReply(trafficData, timestamp) {
 
             <div class="bg-white rounded-3xl p-6 border border-outline-variant/30 shadow-xl shadow-primary/5">
                 <p class="text-sm text-on-surface-variant mb-6">
-                    I analyzed the route from <span class="text-on-surface font-semibold underline decoration-primary/20">${trafficData.route.split('-')[0]}</span> to <span class="text-on-surface font-semibold underline decoration-primary/20">${trafficData.route.split('-')[1]}</span>.
+                    I analyzed the route from <span class="text-on-surface font-semibold underline decoration-primary/20">${o}</span> to <span class="text-on-surface font-semibold underline decoration-primary/20">${d}</span>.
                     ${trafficData.is_prediction ? `Forecast for <b>${trafficData.day}</b> at <b>${trafficData.hour}:00</b>:` : "Status at that time:"}
                 </p>
 
@@ -526,10 +536,124 @@ function constructBotReply(trafficData, timestamp) {
                         </div>
                         <span class="text-xs font-bold text-on-surface">${trafficData.normal_duration || 'N/A'} mins</span>
                     </div>
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="material-symbols-outlined text-sm text-on-surface-variant">verified</span>
+                            <span class="text-xs font-medium text-on-surface-variant">ML Confidence</span>
+                        </div>
+                        <span class="text-xs font-bold text-primary">${trafficData.confidence_score ?? 'N/A'}%</span>
+                    </div>
+                </div>
+
+                <!-- Hybrid AI Analysis -->
+                <div class="mt-6 pt-6 border-t border-outline-variant/20">
+                    <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-4">Hybrid AI Analysis</h4>
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center bg-surface-container-lowest p-3 rounded-xl border border-outline-variant/10">
+                            <div>
+                                <p class="text-[10px] text-on-surface-variant uppercase font-bold">Google Maps ETA</p>
+                                <p class="text-sm font-bold">${trafficData.google_traffic_duration ?? 'N/A'} mins</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[10px] text-on-surface-variant uppercase font-bold">AI Adjustment</p>
+                                <p class="text-sm font-bold ${trafficData.ai_adjustment > 0 ? 'text-error' : (trafficData.ai_adjustment < 0 ? 'text-green-600' : 'text-on-surface')}">
+                                    ${trafficData.ai_adjustment > 0 ? '+' : ''}${trafficData.ai_adjustment ?? 0} mins
+                                </p>
+                            </div>
+                        </div>
+                        ${trafficData.adjustment_reasons && trafficData.adjustment_reasons.length > 0 ? `
+                        <div class="px-3">
+                            <ul class="space-y-1">
+                                ${trafficData.adjustment_reasons.map(reason => `
+                                    <li class="flex items-center gap-2 text-[11px] text-on-surface-variant">
+                                        <span class="w-1 h-1 rounded-full bg-primary/40"></span>
+                                        ${reason}
+                                    </li>
+                                `).join('')}
+                            </ul>
+                        </div>
+                        ` : ''}
+                        <div class="bg-primary/5 p-4 rounded-2xl border border-primary/10 flex justify-between items-center">
+                            <span class="text-xs font-bold text-primary uppercase tracking-wider">Final Smart ETA</span>
+                            <span class="text-xl font-black text-primary">${trafficData.final_smart_eta ?? trafficData.travel_time ?? 'N/A'} mins</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Traffic Pressure & Risk -->
+                <div class="mt-6 pt-6 border-t border-outline-variant/20 grid grid-cols-2 gap-4">
+                    <div>
+                        <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2">Pressure Score</h4>
+                        <div class="flex items-center gap-2">
+                            <div class="flex-1 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
+                                <div class="h-full ${pressure > 70 ? 'bg-red-500' : (pressure > 35 ? 'bg-yellow-500' : 'bg-green-500')}" style="width: ${pressure}%"></div>
+                            </div>
+                            <span class="text-xs font-bold">${pressure}/100</span>
+                        </div>
+                        <p class="text-[10px] text-on-surface-variant mt-1">${trafficData.pressure_level ?? 'Low'} Pressure Environment</p>
+                    </div>
+                    <div>
+                        <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2">Route Risk</h4>
+                        <div class="flex items-center gap-1.5">
+                            <span class="material-symbols-outlined text-sm ${risk.level === 'High' ? 'text-red-500' : (risk.level === 'Medium' ? 'text-yellow-500' : 'text-green-500')}">
+                                ${risk.level === 'High' ? 'warning' : (risk.level === 'Medium' ? 'info' : 'check_circle')}
+                            </span>
+                            <span class="text-xs font-bold text-on-surface">${risk.level} Risk</span>
+                        </div>
+                        <p class="text-[10px] text-on-surface-variant mt-1">Stability: ${risk.stability}</p>
+                    </div>
+                </div>
+
+                <!-- Contextual Analysis -->
+                <div class="mt-6 pt-6 border-t border-outline-variant/20">
+                    <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-4">Context Intelligence</h4>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div class="p-2 bg-surface-container-lowest rounded-xl border border-outline-variant/10 flex flex-col items-center text-center">
+                            <span class="material-symbols-outlined text-sm text-primary mb-1">cloud</span>
+                            <span class="text-[9px] text-on-surface-variant uppercase font-bold">Weather</span>
+                            <span class="text-[10px] font-bold">${ctx.weather}</span>
+                        </div>
+                        <div class="p-2 bg-surface-container-lowest rounded-xl border border-outline-variant/10 flex flex-col items-center text-center">
+                            <span class="material-symbols-outlined text-sm text-primary mb-1">school</span>
+                            <span class="text-[9px] text-on-surface-variant uppercase font-bold">School</span>
+                            <span class="text-[10px] font-bold">${ctx.school_rush === 'Yes' ? 'Rush Hour' : 'No Rush'}</span>
+                        </div>
+                        <div class="p-2 bg-surface-container-lowest rounded-xl border border-outline-variant/10 flex flex-col items-center text-center">
+                            <span class="material-symbols-outlined text-sm text-primary mb-1">work</span>
+                            <span class="text-[9px] text-on-surface-variant uppercase font-bold">Office</span>
+                            <span class="text-[10px] font-bold">${ctx.office_rush === 'Yes' ? 'Rush Hour' : 'No Rush'}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Reasoning -->
+                <div class="mt-6 p-4 bg-surface-container-high rounded-2xl border border-outline-variant/20">
+                    <h4 class="text-xs font-bold text-on-surface mb-3 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-sm">psychology</span>
+                        Why this prediction?
+                    </h4>
+                    <div class="grid grid-cols-1 gap-2">
+                        ${reasoning.map(reason => `
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs">${reason.startsWith('✓') ? '✅' : '⚠️'}</span>
+                                <span class="text-xs text-on-surface-variant">${reason.substring(2)}</span>
+                            </div>
+                        `).join('')}
+                    </div>
                 </div>
             </div>
         </div>
     `;
+
+    if (trafficData.segments_delay && trafficData.segments_delay.length > 0) {
+        let delayMsg = `<div class="mt-2 space-y-2"><p class="text-xs font-bold text-error flex items-center gap-1 uppercase tracking-wider px-1"><span class="material-symbols-outlined text-sm">warning</span> Segment Specific Alerts</p>`;
+        trafficData.segments_delay.forEach(seg => {
+            delayMsg += `<div class="p-4 bg-red-50 border-l-4 border-error rounded-r-xl flex items-start gap-3"><span class="material-symbols-outlined text-error text-lg mt-0.5">report_problem</span><p class="text-xs text-on-surface leading-relaxed">A little delay of <span class="font-bold text-error">${seg.delay} minutes</span> might be encountered at <span class="font-bold underline decoration-error/30">${seg.point}</span>.</p></div>`;
+        });
+        delayMsg += `</div>`;
+        botReply += delayMsg;
+    }
+
     return botReply;
 }
 
