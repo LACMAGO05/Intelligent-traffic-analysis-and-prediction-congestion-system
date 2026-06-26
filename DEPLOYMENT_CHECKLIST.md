@@ -60,6 +60,24 @@ If you'd rather declare everything from the repo:
 
 ---
 
+## 2b. Background jobs on the FREE plan (no worker) — GitHub Actions cron
+Render's free plan has **no background worker**, so an external scheduler triggers
+the collector/alerts + drains the outbox by calling `/tasks/run/`.
+
+- [ ] Pick a long random value for `CRON_SECRET` (e.g. `python -c "import secrets;print(secrets.token_urlsafe(32))"`).
+- [ ] **Render** → web service → Environment → add `CRON_SECRET` = *(that value)*.
+- [ ] **GitHub** → your repo → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**:
+  - [ ] `CRON_SECRET` = *(the same value)*
+  - [ ] `APP_URL` = `https://traffik237.onrender.com` *(no trailing slash)*
+- [ ] The workflow `.github/workflows/scheduled-tasks.yml` is already in the repo; it runs every 20 min.
+- [ ] Test now: GitHub → **Actions** tab → **Scheduled tasks** → **Run workflow**. It should succeed (green).
+- [ ] Manual curl check (optional):
+  `curl -X POST https://traffik237.onrender.com/tasks/run/ -H "X-Cron-Secret: <secret>"` → `{"status":"ok",...}`.
+
+> If you later upgrade to a paid plan, re-add the `worker` service (`start_collector`) and you can delete this cron.
+
+---
+
 ## 3. Sentry (error monitoring)
 - [ ] Go to https://sentry.io → sign up / log in → **Create Project**.
 - [ ] Platform: **Django**. Name: `traffik`. Click **Create Project**.

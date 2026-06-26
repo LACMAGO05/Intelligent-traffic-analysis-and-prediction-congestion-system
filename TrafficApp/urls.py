@@ -14,6 +14,7 @@ urlpatterns = [
     path("alerts/", views.alerts_view, name="alerts"),
     path("push/subscribe/", views.save_push_subscription, name="push_subscribe"),
     path("sw.js", views.service_worker, name="service_worker"),
+    path("tasks/run/", views.run_scheduled_tasks, name="run_tasks"),
     path("predict/", views.predict_view, name="predict"),
     # path("alerts/", views.get_gridlock_alerts, name="alerts"),
     path("chat-history/", views.chat_history_view, name="chat_history"),

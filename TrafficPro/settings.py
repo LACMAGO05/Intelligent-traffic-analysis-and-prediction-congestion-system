@@ -71,6 +71,12 @@ if SENTRY_DSN:
         send_default_pii=False,  # don't ship user PII to Sentry
     )
 
+# ── Scheduled-task trigger (free-tier alternative to a worker) ─────────────────
+# On Render's free plan there is no background worker, so an external scheduler
+# (GitHub Actions cron) calls /tasks/run/ with this shared secret to run the
+# gridlock-alert forecast and drain the outbox. Must match the GitHub secret.
+CRON_SECRET = os.getenv('CRON_SECRET')
+
 OPENWEATHER_API_KEY = os.getenv('OPENWEATHER_API_KEY')
 SENDGRID_API_KEY = os.getenv('SENDGRID_API_KEY')
 SUPABASE_URL = os.getenv('SUPABASE_URL')

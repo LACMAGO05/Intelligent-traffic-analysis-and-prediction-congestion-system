@@ -1,0 +1,24 @@
+name: Scheduled tasks
+
+# Free-tier replacement for a Render background worker: pings the app's
+# /tasks/run/ endpoint on a schedule so gridlock alerts are forecast and the
+# email/task outbox is drained. The ping also wakes the free Render dyno.
+#
+# Required GitHub repo secrets (Settings → Secrets and variables → Actions):
+#   CRON_SECRET  — must match the CRON_SECRET env var on the Render service
+#   APP_URL      — e.g. https://traffik237.onrender.com   (no trailing slash)
+
+on:
+  schedule:
+    - cron: "*/20 * * * *"   # every 20 minutes (UTC)
+  workflow_dispatch: {}        # lets you run it manually from the Actions tab
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit the task runner
+        run: |
+          curl -fsS -X POST "${{ secrets.APP_URL }}/tasks/run/" \
+            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+            --max-time 120 --retry 2 --retry-delay 30

@@ -35,6 +35,8 @@ import traceback   #lets us print the real error to terminal
 import os
 import csv
 import json
+import hmac
+from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
 import datetime
 
@@ -924,6 +926,36 @@ def _parse_hhmm(value):
         return datetime.datetime.strptime(value, "%H:%M").time()
     except (ValueError, TypeError):
         return None
+
+
+@csrf_exempt
+def run_scheduled_tasks(request):
+    """
+    External-cron entry point for background jobs — the free-tier substitute for
+    a Render worker. An external scheduler (GitHub Actions) calls this every
+    ~20 min with the shared ``CRON_SECRET``; it forecasts gridlock alerts and
+    drains the durable task/email outbox. Secret-gated and CSRF-exempt because
+    it's a machine-to-machine call with no session.
+    """
+    secret = settings.CRON_SECRET
+    provided = request.headers.get("X-Cron-Secret") or request.GET.get("token", "")
+    if not secret or not hmac.compare_digest(provided, secret):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    try:
+        from .services.alert_job import run_gridlock_alerts
+        from .services.outbox import process_outbox
+        alerts_sent = run_gridlock_alerts()
+        processed, failed = process_outbox()
+        return JsonResponse({
+            "status": "ok",
+            "alerts_sent": alerts_sent,
+            "outbox_processed": processed,
+            "outbox_failed": failed,
+        })
+    except Exception:
+        logger.exception("Scheduled task run failed")
+        return JsonResponse({"error": "Task run failed"}, status=500)
 
 
 @login_required
