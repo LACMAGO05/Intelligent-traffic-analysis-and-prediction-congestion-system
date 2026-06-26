@@ -51,10 +51,8 @@ class SettingsTests(TestCase):
         self.assertIsInstance(settings.DEBUG, bool)
 
     def test_google_maps_key_binding_present(self):
-        # The setting must exist (value may be None in a bare env) and the
-        # legacy alias must mirror it.
+        # The setting must exist (value may be None in a bare env).
         self.assertTrue(hasattr(settings, "GOOGLE_MAPS_API_KEY"))
-        self.assertEqual(settings.GOOGLE_CLIENT_SECRET, settings.GOOGLE_MAPS_API_KEY)
 
     def test_cache_backend_configured(self):
         self.assertIn("default", settings.CACHES)

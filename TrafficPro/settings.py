@@ -54,14 +54,8 @@ if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
 # NOTE: GOOGLE_MAPS_API_KEY is a *browser-exposed* Google Maps API key — it is
 # rendered into predict.html for the JS SDK. It MUST be restricted in the Google
 # Cloud console (HTTP referrer + enabled APIs) to prevent quota/billing abuse.
-# The legacy env name GOOGLE_CLIENT_SECRET is still honoured so existing
-# deployments keep working without an env change.
-GOOGLE_MAPS_API_KEY = (
-    os.getenv('GOOGLE_MAPS_API_KEY')
-    or os.getenv('GOOGLE_MAPS_API')
-    or os.getenv('GOOGLE_CLIENT_SECRET')
-)
-GOOGLE_CLIENT_SECRET = GOOGLE_MAPS_API_KEY  # backward-compatible alias
+# (GOOGLE_MAPS_API is accepted as an alternative env var name.)
+GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY') or os.getenv('GOOGLE_MAPS_API')
 
 # ── Web Push (VAPID) ──────────────────────────────────────────────────────────
 # Generated once with py_vapid; the public key is exposed to the browser as the
