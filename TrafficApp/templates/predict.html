@@ -253,7 +253,9 @@
         </div>
       </main>
     </div>
-    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places&callback=initAutocomplete"></script>
+    <!-- No &callback= here: index.js initializes autocomplete on window load.
+         Passing callback fired before index.js parsed → "initAutocomplete is not a function". -->
+    <script src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&libraries=places"></script>
     <script>
       function toggleSidebar() {
         const sidebar = document.getElementById('sidebar');

@@ -758,16 +758,18 @@ function initAutocomplete() {
         strictBounds: false
     };
 
-    // Initialize for Origin
-    const originInput = document.getElementById('origin');
-    if (originInput) {
-        new google.maps.places.Autocomplete(originInput, options);
-    }
+    // Legacy Places Autocomplete is unavailable to new Google projects (since
+    // Mar 2025). Wrap construction so an unavailable/blocked Places API degrades
+    // gracefully to plain text inputs instead of throwing — predictions use the
+    // typed text regardless.
+    try {
+        const originInput = document.getElementById('origin');
+        if (originInput) new google.maps.places.Autocomplete(originInput, options);
 
-    // Initialize for Destination
-    const destInput = document.getElementById('destination');
-    if (destInput) {
-        new google.maps.places.Autocomplete(destInput, options);
+        const destInput = document.getElementById('destination');
+        if (destInput) new google.maps.places.Autocomplete(destInput, options);
+    } catch (e) {
+        console.warn("Address autocomplete unavailable; manual entry still works.", e);
     }
 }
 
