@@ -35,11 +35,13 @@ DEBUG = os.getenv('DEBUG', 'False').strip().lower() in ('1', 'true', 'yes', 'on'
 
 print("DEBUG =", DEBUG)
 
-# First arg to os.getenv is the ENV VAR NAME. Read an optional ALLOWED_HOSTS
-# env var (comma-separated); otherwise default to local dev + the Render domain.
-ALLOWED_HOSTS = os.getenv(
-    'ALLOWED_HOSTS', '127.0.0.1,localhost,traffik237.onrender.com'
-).split(',')
+# Read an optional ALLOWED_HOSTS env var (comma-separated); otherwise default to
+# local dev + the Render domain. NOTE: `os.getenv(name, default)` only uses the
+# default when the var is UNSET — an env var set to "" returns "", which would
+# yield [''] and reject every request. The `or` guard treats blank as unset, and
+# each host is stripped so stray spaces in the dashboard value can't break it.
+_allowed_hosts = os.getenv('ALLOWED_HOSTS') or '127.0.0.1,localhost,traffik237.onrender.com'
+ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
 
 # ── Third-party service credentials (loaded from environment) ─────────────────
 # NOTE: GOOGLE_MAPS_API_KEY is a *browser-exposed* Google Maps API key — it is

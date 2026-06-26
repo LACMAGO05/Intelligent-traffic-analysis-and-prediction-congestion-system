@@ -1,9 +1,12 @@
-# Render Blueprint: declares BOTH the web service and the background worker.
-# The worker runs the traffic collector + the gridlock-alert scheduler, which a
-# plain web service does not (and which would duplicate if the web were scaled).
+# Render Blueprint — web service only.
 #
-# Secrets are marked `sync: false` so Render prompts for them in the dashboard
-# instead of being committed here. Set the SAME values on both services.
+# NOTE: Background Workers require a PAID Render plan ("service type is not
+# available for this plan" on free). On the free plan the collector + gridlock
+# alerts must be triggered by an EXTERNAL scheduler (e.g. a GitHub Actions cron)
+# hitting a secured endpoint on the web service. If you upgrade, re-add a
+# `worker` service running `python manage.py start_collector`.
+#
+# Secrets are `sync: false` so Render prompts for them in the dashboard.
 services:
   - type: web
     name: traffik
@@ -41,37 +44,5 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
-
-  - type: worker
-    name: traffik-worker
-    runtime: python
-    plan: free
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "python manage.py start_collector"
-    envVars:
-      - key: DEBUG
-        value: "False"
-      - key: PYTHON_VERSION
-        value: "3.12.0"
-      - key: DJANGO_SECRET_KEY
-        sync: false
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: GOOGLE_MAPS_API_KEY
-        sync: false
-      - key: OPENWEATHER_API_KEY
-        sync: false
-      - key: SENDGRID_API_KEY
-        sync: false
-      - key: DEFAULT_FROM_EMAIL
-        sync: false
-      - key: VAPID_PUBLIC_KEY
-        sync: false
-      - key: VAPID_PRIVATE_KEY
-        sync: false
-      - key: VAPID_SUBJECT
-        sync: false
-      - key: SENTRY_DSN
+      - key: CRON_SECRET
         sync: false
