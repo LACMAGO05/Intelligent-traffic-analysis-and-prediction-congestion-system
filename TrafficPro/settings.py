@@ -43,13 +43,24 @@ print("DEBUG =", DEBUG)
 _allowed_hosts = os.getenv('ALLOWED_HOSTS') or '127.0.0.1,localhost,traffik237.onrender.com'
 ALLOWED_HOSTS = [h.strip() for h in _allowed_hosts.split(',') if h.strip()]
 
+# Render injects the service's real public hostname here automatically, whatever
+# URL it assigns (e.g. traffik-i0av.onrender.com). Trusting it means a new/renamed
+# Render service can never break with DisallowedHost again.
+RENDER_EXTERNAL_HOSTNAME = os.getenv('RENDER_EXTERNAL_HOSTNAME')
+if RENDER_EXTERNAL_HOSTNAME and RENDER_EXTERNAL_HOSTNAME not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append(RENDER_EXTERNAL_HOSTNAME)
+
 # ── Third-party service credentials (loaded from environment) ─────────────────
 # NOTE: GOOGLE_MAPS_API_KEY is a *browser-exposed* Google Maps API key — it is
 # rendered into predict.html for the JS SDK. It MUST be restricted in the Google
 # Cloud console (HTTP referrer + enabled APIs) to prevent quota/billing abuse.
 # The legacy env name GOOGLE_CLIENT_SECRET is still honoured so existing
 # deployments keep working without an env change.
-GOOGLE_MAPS_API_KEY = os.getenv('GOOGLE_MAPS_API_KEY') or os.getenv('GOOGLE_CLIENT_SECRET')
+GOOGLE_MAPS_API_KEY = (
+    os.getenv('GOOGLE_MAPS_API_KEY')
+    or os.getenv('GOOGLE_MAPS_API')
+    or os.getenv('GOOGLE_CLIENT_SECRET')
+)
 GOOGLE_CLIENT_SECRET = GOOGLE_MAPS_API_KEY  # backward-compatible alias
 
 # ── Web Push (VAPID) ──────────────────────────────────────────────────────────
@@ -263,10 +274,13 @@ else:
     }
 
 CSRF_TRUSTED_ORIGINS = [
-    "https://traffik237.onrender.com", 
+    "https://traffik237.onrender.com",
     "https://127.0.0.1:8000",
     "http://127.0.0.1:8000"
 ]
+# Trust whatever host Render actually serves this service on (for POST/CSRF).
+if RENDER_EXTERNAL_HOSTNAME:
+    CSRF_TRUSTED_ORIGINS.append(f"https://{RENDER_EXTERNAL_HOSTNAME}")
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 
