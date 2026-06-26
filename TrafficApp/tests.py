@@ -104,7 +104,7 @@ class SignupOtpFlowTests(TestCase):
     def test_signup_sends_otp_and_redirects(self, mock_send, mock_otp):
         resp = self.client.post(reverse("signup"), {
             "username": "alice", "email": "alice@example.com",
-            "password": "longenoughpassword123",
+            "password": "longenoughpassword123", "consent": "yes",
         })
         self.assertRedirects(resp, reverse("otp"), fetch_redirect_response=False)
         mock_send.assert_called_once()
@@ -113,6 +113,7 @@ class SignupOtpFlowTests(TestCase):
     def test_signup_rejects_short_password(self):
         resp = self.client.post(reverse("signup"), {
             "username": "bob", "email": "bob@example.com", "password": "short",
+            "consent": "yes",
         })
         self.assertRedirects(resp, reverse("signup"), fetch_redirect_response=False)
         self.assertNotIn("signup_data", self.client.session)
@@ -121,7 +122,7 @@ class SignupOtpFlowTests(TestCase):
     def test_signup_aborts_when_email_fails(self, mock_send):
         resp = self.client.post(reverse("signup"), {
             "username": "carol", "email": "carol@example.com",
-            "password": "longenoughpassword123",
+            "password": "longenoughpassword123", "consent": "yes",
         })
         self.assertRedirects(resp, reverse("signup"), fetch_redirect_response=False)
         self.assertNotIn("signup_data", self.client.session)
@@ -136,7 +137,7 @@ class SignupOtpFlowTests(TestCase):
     def test_full_signup_then_verify_creates_user_with_role(self, m_send, m_otp, m_welcome):
         self.client.post(reverse("signup"), {
             "username": "dave", "email": "dave@example.com",
-            "password": "longenoughpassword123",
+            "password": "longenoughpassword123", "consent": "yes",
         })
         resp = self.client.post(reverse("otp"), {"otp": "123456"})
         self.assertRedirects(resp, reverse("signin"), fetch_redirect_response=False)
@@ -150,7 +151,7 @@ class SignupOtpFlowTests(TestCase):
     def test_wrong_otp_does_not_create_user(self, m_send, m_otp):
         self.client.post(reverse("signup"), {
             "username": "erin", "email": "erin@example.com",
-            "password": "longenoughpassword123",
+            "password": "longenoughpassword123", "consent": "yes",
         })
         self.client.post(reverse("otp"), {"otp": "000000"})
         self.assertFalse(User.objects.filter(username="erin").exists())
@@ -163,22 +164,23 @@ class RbacTests(TestCase):
     def setUp(self):
         self.client = Client()
 
-    def test_anonymous_predict_redirects_to_login(self):
+    def test_anonymous_can_load_predict_as_guest(self):
+        # Predict is now public (guest trial mode): anonymous visitors get the
+        # page (200) with a limited free quota, not a redirect to login.
         resp = self.client.get(reverse("predict"))
-        self.assertEqual(resp.status_code, 302)
-        # Must point at the real sign-in route (/login/), not Django's unrouted
-        # default /accounts/login/.
-        self.assertTrue(resp.url.startswith("/login/"), resp.url)
-        self.assertEqual(resp.url, f"{reverse('signin')}?next={reverse('predict')}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context["is_guest"])
 
     def test_login_url_setting(self):
         self.assertEqual(settings.LOGIN_URL, "/login/")
 
-    def test_logged_in_without_group_is_forbidden(self):
+    def test_logged_in_without_group_can_load_predict(self):
+        # With guest mode, predict no longer requires a role — any visitor
+        # (logged in or not) can load it.
         User.objects.create_user(username="nogroup", password="longenoughpassword123")
         self.client.login(username="nogroup", password="longenoughpassword123")
         resp = self.client.get(reverse("predict"))
-        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(resp.status_code, 200)
 
     def test_commuter_can_load_predict(self):
         user = User.objects.create_user(username="commuter", password="longenoughpassword123")
@@ -238,16 +240,25 @@ class AnalyticsFromPostgresTests(TestCase):
         admin = User.objects.create_user(username="boss", password="longenoughpassword123")
         admin.groups.add(Group.objects.get_or_create(name="Admin")[0])
         self.client.login(username="boss", password="longenoughpassword123")
-        for cong in ["High", "High", "Medium", "Low"]:
+        # Summary cards aggregate the rich collector dataset (TrafficRecord).
+        base = timezone.now()
+        for i, cong in enumerate(["High", "High", "Medium", "Low"]):
+            TrafficRecord.objects.create(
+                timestamp=base - timedelta(hours=i),
+                route=f"A to B {i}", congestion=cong, hour=8, day_of_week=1,
+            )
+        # Prediction count comes from PredictionLog.
+        for cong in ["High", "Medium"]:
             PredictionLog.objects.create(origin="A", destination="B", congestion=cong)
 
     def test_analytics_counts(self):
         resp = self.client.get(reverse("analytics"))
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.context["total"], 4)
-        self.assertEqual(resp.context["high"], 2)
-        self.assertEqual(resp.context["medium"], 1)
-        self.assertEqual(resp.context["low"], 1)
+        self.assertEqual(resp.context["obs_total"], 4)
+        self.assertEqual(resp.context["obs_high"], 2)
+        self.assertEqual(resp.context["obs_medium"], 1)
+        self.assertEqual(resp.context["obs_low"], 1)
+        self.assertEqual(resp.context["total_predictions"], 2)
 
 
 @override_settings(**TEST_OVERRIDES)
