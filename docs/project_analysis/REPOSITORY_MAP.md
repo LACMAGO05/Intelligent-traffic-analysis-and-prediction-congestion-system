@@ -304,7 +304,7 @@ TrafficCollector.collect_all_routes()
 | **Background worker** | `manage.py start_collector` (must run as a separate process/worker; not started by the web dyno) |
 | **Logging** | Console handlers via `LOGGING`; `traffic_collector/logger.py` also writes `logs/collector.log`; `logs/django.log` present |
 
-**Env vars required:** `DJANGO_SECRET_KEY, DATABASE_URL, ALLOWED_HOSTS, DEBUG, GOOGLE_CLIENT_SECRET, OPENWEATHER_API_KEY, SENDGRID_API_KEY, DEFAULT_FROM_EMAIL, SUPABASE_URL, SUPABASE_KEY, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD`.
+**Env vars required:** `DJANGO_SECRET_KEY, DATABASE_URL, ALLOWED_HOSTS, DEBUG, GOOGLE_MAPS_API_KEY, OPENWEATHER_API_KEY, SENDGRID_API_KEY, DEFAULT_FROM_EMAIL, SUPABASE_URL, SUPABASE_KEY`.
 
 ---
 

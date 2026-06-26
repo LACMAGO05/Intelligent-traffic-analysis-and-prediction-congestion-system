@@ -27,7 +27,7 @@ The application **could not start** before this change set (`NameError: DEBUG` a
 
 ### `TrafficPro/settings.py`
 - **C1:** Added `DEBUG = os.getenv('DEBUG', 'False') ...` — explicit, defaults to production-safe `False`. This is what the existing `if not DEBUG:` security block depends on.
-- **Config bindings:** Added the previously-missing env→settings bindings: `GOOGLE_MAPS_API_KEY` (+ backward-compat `GOOGLE_CLIENT_SECRET` alias), `OPENWEATHER_API_KEY`, `SENDGRID_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`. Code already referenced these on `settings`; they were never defined.
+- **Config bindings:** Added the previously-missing env→settings bindings: `GOOGLE_MAPS_API_KEY` (a `GOOGLE_CLIENT_SECRET` compatibility alias was added here then later removed), `OPENWEATHER_API_KEY`, `SENDGRID_API_KEY`, `SUPABASE_URL`, `SUPABASE_KEY`. Code already referenced these on `settings`; they were never defined.
 - **H3:** Added `CACHES` — uses `RedisCache` when `REDIS_URL` is set (shared across workers), otherwise `LocMemCache` (dev/test). Non-breaking default.
 
 ### `TrafficApp/views.py`
@@ -42,7 +42,7 @@ The application **could not start** before this change set (`NameError: DEBUG` a
 - **H8:** Converted the `--- AI PREDICTION DEBUG ---` `print` block to a single `logger.debug(...)` call.
 
 ### `TrafficApp/services/google_maps_service.py`, `TrafficApp/utils.py`, `traffic_collector/collector.py`, `TrafficApp/data_collector.py`
-- **H4:** Read `GOOGLE_MAPS_API_KEY` instead of `GOOGLE_CLIENT_SECRET` (alias keeps old env name working).
+- **H4:** Read `GOOGLE_MAPS_API_KEY` (the old `GOOGLE_CLIENT_SECRET` name was supported via an alias at the time, since removed).
 
 ### `requirements.txt`
 - **H3:** Added `redis==5.2.1` for the production shared-cache path.
@@ -56,7 +56,7 @@ The application **could not start** before this change set (`NameError: DEBUG` a
 
 1. **`DEBUG`** — ensure prod env sets `DEBUG=False` (default if unset). Confirm the security block (SSL redirect, HSTS, secure cookies) is active.
 2. **H3 / Redis** — to actually share rate-limit counters across workers, set `REDIS_URL` in the prod environment (the `redis` package is now in `requirements.txt`). Without it, limits remain per-process.
-3. **H4 / Google key** — **restrict the Maps API key in the Google Cloud console** (HTTP-referrer + enabled-APIs). The code rename does not restrict the key; this step is required and cannot be done from the repo. The `GOOGLE_CLIENT_SECRET` env var name still works; migrating to `GOOGLE_MAPS_API_KEY` is optional.
+3. **H4 / Google key** — **restrict the Maps API key in the Google Cloud console** (HTTP-referrer + enabled-APIs). The code rename does not restrict the key; this step is required and cannot be done from the repo. The env var is now `GOOGLE_MAPS_API_KEY` (the legacy `GOOGLE_CLIENT_SECRET` name has been removed).
 4. **No DB migration** — nothing to apply or roll back at the schema level.
 
 ## Rollback

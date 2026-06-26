@@ -79,11 +79,11 @@
 - **Solution:** Back the cache with a shared store (Redis/Memcached).
 - **Implementation:** Configure `CACHES` with Redis and set `RATELIMIT_USE_CACHE`; verify limits hold across workers in a load test.
 
-### H4 — Google Maps key exposed client-side under a misleading name — *High*
-- **Explanation:** `GOOGLE_CLIENT_SECRET` is actually a Maps **API key**, rendered into `predict.html` for the JS SDK. The name implies an OAuth secret, inviting mishandling.
+### H4 — Google Maps key exposed client-side — *High* (name resolved)
+- **Explanation:** `GOOGLE_MAPS_API_KEY` is a Maps **API key**, rendered into `predict.html` for the JS SDK. (The old misleading name `GOOGLE_CLIENT_SECRET` has been removed.)
 - **Impact:** A scraped, unrestricted key can be abused → billing/quota theft.
-- **Solution:** Apply HTTP-referrer + API restrictions in the Google Cloud console; rename the variable; consider separate keys for server (IP-restricted) vs browser (referrer-restricted).
-- **Implementation:** Create two restricted keys; introduce `GOOGLE_MAPS_BROWSER_KEY` and `GOOGLE_MAPS_SERVER_KEY`; deprecate `GOOGLE_CLIENT_SECRET`.
+- **Solution:** Apply HTTP-referrer + API restrictions in the Google Cloud console; consider separate keys for server (IP-restricted) vs browser (referrer-restricted).
+- **Implementation:** Variable renamed to `GOOGLE_MAPS_API_KEY` (done). Remaining hardening: optionally split into browser- vs server-restricted keys.
 
 ### H8 — Internal error detail leaked to clients; stdout debugging — *High*
 - **Explanation:** `predict_view` returns `JsonResponse({"error": str(e)}, 500)` and uses `print(...)` / `traceback.print_exc()` throughout instead of structured logging.

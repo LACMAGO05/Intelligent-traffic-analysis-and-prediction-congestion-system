@@ -79,7 +79,7 @@ Two map libraries are present: **Google Maps JS + Places** (loaded in `predict.h
 ## 8. Risks
 
 1. **Dead endpoints wired to UI** — `fetchAlerts()` polls `/alerts/` every 120s and the mic posts to `/transcribe/`; both 404. The 120s polling generates constant failing requests.
-2. **Google Maps API key exposed in HTML** — injected from `GOOGLE_CLIENT_SECRET` into the page (unavoidable for client SDK, but the key must be **HTTP-referrer/domain restricted** in the Google console, and note the misleading name — it is a Maps API key, not an OAuth client secret).
+2. **Google Maps API key exposed in HTML** — injected from `GOOGLE_MAPS_API_KEY` into the page (unavoidable for the client SDK, but the key must be **HTTP-referrer/domain restricted** in the Google console).
 3. **CDN dependency (unpkg/Leaflet)** — no SRI/pinned version (`unpkg.com/leaflet`), so a CDN outage or content change affects the app; supply-chain exposure.
 4. **AJAX 403 mismatch** — forbidden `fetch` calls get HTML (403.html) instead of the JSON the client parses, producing confusing client errors.
 5. **No client-side build/minification/cache-busting beyond `?v=1`** — manual versioning is error-prone for cache invalidation.

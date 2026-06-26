@@ -12,8 +12,8 @@ TrafficPro composes several external services to deliver predictions. This docum
 
 | Service | Used by | Auth / config | Purpose |
 |---|---|---|---|
-| **Google Maps Directions API** | `services/google_maps_service.py`, `utils.py`, `traffic_collector/collector.py` | `GOOGLE_CLIENT_SECRET` (query param `key`) | Route distance, duration, traffic duration, polyline, alternatives, per-step delays |
-| **Google Maps Distance Matrix API** | `TrafficApp/data_collector.py` (legacy) | `GOOGLE_CLIENT_SECRET` | Older route-metric collection (superseded) |
+| **Google Maps Directions API** | `services/google_maps_service.py`, `utils.py`, `traffic_collector/collector.py` | `GOOGLE_MAPS_API_KEY` (query param `key`) | Route distance, duration, traffic duration, polyline, alternatives, per-step delays |
+| **Google Maps Distance Matrix API** | `TrafficApp/data_collector.py` (legacy) | `GOOGLE_MAPS_API_KEY` | Older route-metric collection (superseded) |
 | **Google Maps JS SDK + Places** | `predict.html`, `static/index.js` | same key, embedded in page | Map render + origin/destination autocomplete (Buea-biased) |
 | **OpenWeatherMap** | `traffic_collector/weather_service.py` | `OPENWEATHER_API_KEY` | Current Buea weather → `weather_condition`, `rainfall_status` |
 | **SendGrid** | `services/email_service.py`, `forms.py` | `SENDGRID_API_KEY`, `DEFAULT_FROM_EMAIL` | Verification, welcome, password-reset, contact emails |
@@ -28,7 +28,7 @@ TrafficPro composes several external services to deliver predictions. This docum
 
 ### Google Maps (Directions + JS/Places)
 - **Server:** `requests.get` to `directions/json` with `traffic_model=best_guess`, `alternatives=True`, 10s (service) / 15s (collector) timeout. Locations are normalized to append `, Buea, Cameroon`.
-- **Client:** SDK loaded with the key inlined into `predict.html` (`?key={{ google_maps_api_key }}`), which comes from `GOOGLE_CLIENT_SECRET`.
+- **Client:** SDK loaded with the key inlined into `predict.html` (`?key={{ google_maps_api_key }}`), which comes from `GOOGLE_MAPS_API_KEY`.
 - **Dependency:** all prediction and collection flows hard-depend on this API and a valid, billing-enabled key.
 
 ### OpenWeatherMap
@@ -45,7 +45,7 @@ TrafficPro composes several external services to deliver predictions. This docum
 
 ## 4. Configuration Surface (env vars)
 
-`DJANGO_SECRET_KEY, DATABASE_URL, ALLOWED_HOSTS, DEBUG, GOOGLE_CLIENT_SECRET, OPENWEATHER_API_KEY, SENDGRID_API_KEY, DEFAULT_FROM_EMAIL, SUPABASE_URL, SUPABASE_KEY, EMAIL_HOST_USER, EMAIL_HOST_PASSWORD` — loaded from `.env` via `python-dotenv`. `DJANGO_SECRET_KEY` is mandatory (crashes if absent); `DEBUG` is in `.env` but **not read** into `settings.py`.
+`DJANGO_SECRET_KEY, DATABASE_URL, ALLOWED_HOSTS, DEBUG, GOOGLE_MAPS_API_KEY, OPENWEATHER_API_KEY, SENDGRID_API_KEY, DEFAULT_FROM_EMAIL, SUPABASE_URL, SUPABASE_KEY, REDIS_URL, SENTRY_DSN, CRON_SECRET, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT` — loaded from `.env` via `python-dotenv`. `DJANGO_SECRET_KEY` is mandatory (crashes if absent).
 
 ## 5. Interactions & Dependencies
 
@@ -65,7 +65,7 @@ client page    ──> Google Maps JS/Places + Leaflet (CDN)
 
 ## 6. Risks
 
-1. **Exposed Google key with confusing name** — `GOOGLE_CLIENT_SECRET` is actually a Maps **API key** rendered into client HTML. It must be **HTTP-referrer + API restricted** in the Google console or it can be scraped and abused (billing exposure). The misleading variable name invites mishandling.
+1. **Browser-exposed Google key** — `GOOGLE_MAPS_API_KEY` is a Maps **API key** rendered into client HTML. It must be **HTTP-referrer + API restricted** in the Google console or it can be scraped and abused (billing exposure). (The legacy misleading name `GOOGLE_CLIENT_SECRET` has since been removed.)
 2. **No retry/circuit-breaker/cache** on external calls — a Google or OpenWeatherMap outage/slowness directly fails or stalls predictions; weather/holiday data are re-fetched every request.
 3. **Quota & billing exposure** — Directions API is metered; the collector hits ~60 routes per cycle (as often as every 10 min in rush hours) plus per-user predictions, with no observed quota guard or cost cap.
 4. **Secrets in `.env` in working tree** — ensure git-ignored and rotated; keys for Google, SendGrid, OpenWeatherMap, Supabase all present.
