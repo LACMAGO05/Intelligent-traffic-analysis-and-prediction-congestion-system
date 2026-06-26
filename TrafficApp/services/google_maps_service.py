@@ -1,4 +1,6 @@
+import hashlib
 import re
+import time
 
 from django.core.cache import cache
 
@@ -25,11 +27,13 @@ class GoogleMapsService:
         # Bucket "now" into 2-minute windows; future timestamps into the hour
         # they fall in, so identical forecasts reuse one API call.
         if departure_time == "now":
-            import time
             bucket = int(time.time() // _CACHE_TTL)
         else:
             bucket = int(departure_time) // 3600
-        return f"directions:{origin.strip().lower()}|{destination.strip().lower()}|{bucket}"
+        # Hash the raw key so spaces/unicode in place names can't produce an
+        # invalid cache key (Django warns about such keys for memcached compat).
+        raw = f"{origin.strip().lower()}|{destination.strip().lower()}|{bucket}"
+        return "directions:" + hashlib.md5(raw.encode("utf-8")).hexdigest()
 
     def get_route_details(self, origin, destination, departure_time="now"):
         """

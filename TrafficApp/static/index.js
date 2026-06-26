@@ -111,6 +111,13 @@ async function predictTraffic() {
             headerColor = "text-red-700";
         }
 
+        // Defensive defaults: a single missing rich field must never blank the
+        // whole panel (the template throws on undefined.prop otherwise).
+        const risk = data.risk_analysis || { level: 'Low', stability: 'Stable' };
+        const ctx = data.context_analysis || { weather: 'N/A', school_rush: 'No', office_rush: 'No' };
+        const reasoning = Array.isArray(data.ai_reasoning) ? data.ai_reasoning : [];
+        const pressure = (typeof data.traffic_pressure_score === 'number') ? data.traffic_pressure_score : 0;
+
         let botReply = `
         <div class="flex flex-col gap-6 w-full font-sans text-on-surface">
             <!-- Header Section with Badge -->
@@ -237,21 +244,21 @@ async function predictTraffic() {
                         <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2">Pressure Score</h4>
                         <div class="flex items-center gap-2">
                             <div class="flex-1 h-1.5 bg-surface-container-high rounded-full overflow-hidden">
-                                <div class="h-full ${data.traffic_pressure_score > 70 ? 'bg-red-500' : (data.traffic_pressure_score > 35 ? 'bg-yellow-500' : 'bg-green-500')}" style="width: ${data.traffic_pressure_score}%"></div>
+                                <div class="h-full ${pressure > 70 ? 'bg-red-500' : (pressure > 35 ? 'bg-yellow-500' : 'bg-green-500')}" style="width: ${pressure}%"></div>
                             </div>
-                            <span class="text-xs font-bold">${data.traffic_pressure_score}/100</span>
+                            <span class="text-xs font-bold">${pressure}/100</span>
                         </div>
                         <p class="text-[10px] text-on-surface-variant mt-1">${data.pressure_level} Pressure Environment</p>
                     </div>
                     <div>
                         <h4 class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold mb-2">Route Risk</h4>
                         <div class="flex items-center gap-1.5">
-                            <span class="material-symbols-outlined text-sm ${data.risk_analysis.level === 'High' ? 'text-red-500' : (data.risk_analysis.level === 'Medium' ? 'text-yellow-500' : 'text-green-500')}">
-                                ${data.risk_analysis.level === 'High' ? 'warning' : (data.risk_analysis.level === 'Medium' ? 'info' : 'check_circle')}
+                            <span class="material-symbols-outlined text-sm ${risk.level === 'High' ? 'text-red-500' : (risk.level === 'Medium' ? 'text-yellow-500' : 'text-green-500')}">
+                                ${risk.level === 'High' ? 'warning' : (risk.level === 'Medium' ? 'info' : 'check_circle')}
                             </span>
-                            <span class="text-xs font-bold text-on-surface">${data.risk_analysis.level} Risk</span>
+                            <span class="text-xs font-bold text-on-surface">${risk.level} Risk</span>
                         </div>
-                        <p class="text-[10px] text-on-surface-variant mt-1">Stability: ${data.risk_analysis.stability}</p>
+                        <p class="text-[10px] text-on-surface-variant mt-1">Stability: ${risk.stability}</p>
                     </div>
                 </div>
 
@@ -262,17 +269,17 @@ async function predictTraffic() {
                         <div class="p-2 bg-surface-container-lowest rounded-xl border border-outline-variant/10 flex flex-col items-center text-center">
                             <span class="material-symbols-outlined text-sm text-primary mb-1">cloud</span>
                             <span class="text-[9px] text-on-surface-variant uppercase font-bold">Weather</span>
-                            <span class="text-[10px] font-bold">${data.context_analysis.weather}</span>
+                            <span class="text-[10px] font-bold">${ctx.weather}</span>
                         </div>
                         <div class="p-2 bg-surface-container-lowest rounded-xl border border-outline-variant/10 flex flex-col items-center text-center">
                             <span class="material-symbols-outlined text-sm text-primary mb-1">school</span>
                             <span class="text-[9px] text-on-surface-variant uppercase font-bold">School</span>
-                            <span class="text-[10px] font-bold">${data.context_analysis.school_rush === 'Yes' ? 'Rush Hour' : 'No Rush'}</span>
+                            <span class="text-[10px] font-bold">${ctx.school_rush === 'Yes' ? 'Rush Hour' : 'No Rush'}</span>
                         </div>
                         <div class="p-2 bg-surface-container-lowest rounded-xl border border-outline-variant/10 flex flex-col items-center text-center">
                             <span class="material-symbols-outlined text-sm text-primary mb-1">work</span>
                             <span class="text-[9px] text-on-surface-variant uppercase font-bold">Office</span>
-                            <span class="text-[10px] font-bold">${data.context_analysis.office_rush === 'Yes' ? 'Rush Hour' : 'No Rush'}</span>
+                            <span class="text-[10px] font-bold">${ctx.office_rush === 'Yes' ? 'Rush Hour' : 'No Rush'}</span>
                         </div>
                     </div>
                 </div>
@@ -284,7 +291,7 @@ async function predictTraffic() {
                         Why this prediction?
                     </h4>
                     <div class="grid grid-cols-1 gap-2">
-                        ${data.ai_reasoning.map(reason => `
+                        ${reasoning.map(reason => `
                             <div class="flex items-center gap-2">
                                 <span class="text-xs">${reason.startsWith('✓') ? '✅' : '⚠️'}</span>
                                 <span class="text-xs text-on-surface-variant">${reason.substring(2)}</span>
