@@ -12,7 +12,9 @@ services:
     name: traffik
     runtime: python
     plan: free
-    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate --noinput"
+    # --clear wipes STATIC_ROOT first so a cached build can never serve a stale
+    # collected file (e.g. an old index.js) after the source changes.
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput --clear && python manage.py migrate --noinput"
     startCommand: "gunicorn TrafficPro.wsgi"
     healthCheckPath: /healthz/
     envVars:
