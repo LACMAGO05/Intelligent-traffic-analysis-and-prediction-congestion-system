@@ -10,7 +10,7 @@ The health endpoint in `TrafficApp/views.py` checks database connectivity and re
 
 ## Model artifacts
 
-Inference expects `traffic_model.pkl` and `feature_schema.json` at the repository root. Startup and Django system checks warn if either is missing. The Render build command does not train, download, or otherwise provision these artifacts. `.gitignore` explicitly exempts the root `traffic_model.pkl` from the general pickle ignore rule, but that does not prove it is committed in the deployed revision. Confirm that both matching artifacts are present in the exact release and inspect startup logs for missing-artifact warnings. See [ML_PIPELINE.md](ML_PIPELINE.md).
+Inference reads the matching model and schema release named in `ml_artifacts/current.json`; if the manifest is absent, it falls back to the checked-in root `traffic_model.pkl` and `feature_schema.json`. Startup and Django system checks warn if the selected pair is missing or its schema version does not match the manifest. The Render build command does not train, download, or otherwise provision these artifacts. Confirm that the manifest and its complete release directory are present in the exact deployed revision and inspect startup logs for artifact warnings. See [ML_PIPELINE.md](ML_PIPELINE.md).
 
 ## Background work: choose and verify the operating mode
 
@@ -21,9 +21,9 @@ The code has two relevant entry points:
 | GitHub Actions workflow `.github/workflows/scheduled-tasks.yml` | Every 20 minutes, posts to `/tasks/run/` with `CRON_SECRET`. The endpoint runs gridlock alert forecasting and processes the outbox. | It does not run `TrafficCollector` or populate new `TrafficRecord` observations. |
 | Separate process running `python manage.py start_collector` | Starts APScheduler. It collects traffic records and schedules gridlock alerts and outbox processing. | The Render Blueprint does not declare this worker. Its live provisioning must be confirmed. |
 
-The worker scheduler runs collection immediately on startup and then at adaptive intervals. It schedules gridlock-alert processing every 20 minutes and outbox processing every minute. If the worker is the selected path for alerts and outbox, do not also enable the GitHub scheduled workflow without intentionally handling concurrent execution. The outbox processor has no visible row-claim/locking step, so overlapping processors could process the same pending task. If the web-only plus GitHub Actions mode is selected, document that periodic traffic collection is not provided by the checked-in scheduled endpoint.
+The worker scheduler runs collection immediately on startup and then at adaptive intervals. It schedules gridlock-alert processing every 20 minutes and outbox processing every minute. The GitHub scheduled workflow serializes its own invocations; database claims prevent concurrent workers from processing the same outbox row or alert window. Email delivery remains at-least-once: a process crash after a provider accepts a message but before the database records success can lead to a retry. If the web-only plus GitHub Actions mode is selected, document that periodic traffic collection is not provided by the checked-in scheduled endpoint.
 
-The cron endpoint requires `CRON_SECRET`; the workflow also requires repository secrets for the application URL and matching cron secret. Keep secret values in deployment secret stores. Do not put them in the repository or logs.
+The cron endpoint requires a POST with `CRON_SECRET` in the `X-Cron-Secret` header; query-string tokens are rejected. The workflow also requires repository secrets for the application URL and matching cron secret, and serializes its own runs. Keep secret values in deployment secret stores. Do not put them in the repository or logs.
 
 ## Configuration and security
 

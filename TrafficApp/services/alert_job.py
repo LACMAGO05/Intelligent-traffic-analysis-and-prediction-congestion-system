@@ -7,7 +7,10 @@ alerted for that window) it pushes a notification to their browsers.
 """
 import datetime
 import logging
+import uuid
+from datetime import timedelta
 
+from django.db import transaction
 from django.utils import timezone
 
 from ..models import RouteWatch, TrafficAlert
@@ -15,6 +18,7 @@ from .forecast import forecast_gridlock, route_string
 from .push_service import notify_user
 
 logger = logging.getLogger(__name__)
+ALERT_CLAIM_LEASE = timedelta(minutes=25)
 
 
 def _watch_applies(watch, target_dt):
@@ -59,22 +63,58 @@ def run_gridlock_alerts(lead_minutes=60):
 
         route = route_string(watch.origin, watch.destination)
 
-        # Dedup: already alerted this user for this route + hour window?
-        if TrafficAlert.objects.filter(
-            user=watch.user, route=route, alert_for=alert_hour
-        ).exists():
-            continue
+        # Claim the unique delivery window before calling the push provider so
+        # concurrent schedulers cannot both notify the same user and route.
+        claim_token = uuid.uuid4()
+        now = timezone.now()
+        with transaction.atomic():
+            claim, created = TrafficAlert.objects.get_or_create(
+                user=watch.user,
+                route=route,
+                alert_for=alert_hour,
+                defaults={
+                    "route_watch": watch,
+                    "status": TrafficAlert.STATUS_PENDING,
+                    "claim_token": claim_token,
+                    "lease_expires_at": now + ALERT_CLAIM_LEASE,
+                },
+            )
+            if not created:
+                claim = TrafficAlert.objects.select_for_update().get(pk=claim.pk)
+                if claim.status == TrafficAlert.STATUS_SENT:
+                    continue
+                if claim.lease_expires_at and claim.lease_expires_at > now:
+                    continue
+                claim_token = uuid.uuid4()
+                claim.status = TrafficAlert.STATUS_PENDING
+                claim.claim_token = claim_token
+                claim.lease_expires_at = now + ALERT_CLAIM_LEASE
+                claim.route_watch = watch
+                claim.save(update_fields=[
+                    "status", "claim_token", "lease_expires_at", "route_watch"
+                ])
 
         forecast = forecast_gridlock(watch.origin, watch.destination, target_dt)
         if not forecast:
+            TrafficAlert.objects.filter(pk=claim.pk, claim_token=claim_token).delete()
             continue
 
         sent = notify_user(watch.user, _build_payload(forecast))
         if sent:
-            TrafficAlert.objects.create(
-                user=watch.user, route_watch=watch, route=route, alert_for=alert_hour
+            TrafficAlert.objects.filter(pk=claim.pk, claim_token=claim_token).update(
+                status=TrafficAlert.STATUS_SENT,
+                sent_at=timezone.now(),
+                claim_token=None,
+                lease_expires_at=None,
             )
             sent_total += sent
-            logger.info("Gridlock alert sent to %s for %s", watch.user.username, route)
+            logger.info("Gridlock alert sent")
+        else:
+            # Allow the next scheduled pass to retry, but never overlap a slow
+            # or still-running send attempt.
+            TrafficAlert.objects.filter(pk=claim.pk, claim_token=claim_token).update(
+                claim_token=None,
+                lease_expires_at=timezone.now() + ALERT_CLAIM_LEASE,
+            )
 
     return sent_total

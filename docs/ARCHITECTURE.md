@@ -11,7 +11,7 @@ flowchart LR
     Hybrid --> Directions[Google Directions API]
     Hybrid --> Context[traffic_context providers]
     Hybrid --> Model[ModelService]
-    Model --> Files[(traffic_model.pkl<br/>feature_schema.json)]
+    Model --> Files[(ml_artifacts/current.json<br/>versioned model + schema)]
     Hybrid --> Result[Hybrid result and ETA adjustments]
     Result --> Django
     Django --> Logs[(PredictionLog)]

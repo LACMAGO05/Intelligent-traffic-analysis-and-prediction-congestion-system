@@ -89,6 +89,7 @@ class TaskOutbox(models.Model):
     and ``task`` must name an entry in the outbox TASK_REGISTRY.
     """
     STATUS_PENDING = "pending"
+    STATUS_PROCESSING = "processing"
     STATUS_DONE = "done"
     STATUS_FAILED = "failed"
 
@@ -99,6 +100,7 @@ class TaskOutbox(models.Model):
     last_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     processed_at = models.DateTimeField(null=True, blank=True)
+    locked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["created_at"]
@@ -179,7 +181,17 @@ class TrafficAlert(models.Model):
     # The predicted congestion time this alert was about (truncated to the hour),
     # so re-runs within the same window don't re-notify.
     alert_for = models.DateTimeField()
-    sent_at = models.DateTimeField(auto_now_add=True)
+    STATUS_PENDING = "pending"
+    STATUS_SENT = "sent"
+
+    status = models.CharField(
+        max_length=10,
+        choices=((STATUS_PENDING, "Pending"), (STATUS_SENT, "Sent")),
+        default=STATUS_SENT,
+    )
+    claim_token = models.UUIDField(null=True, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-sent_at"]
@@ -190,7 +202,8 @@ class TrafficAlert(models.Model):
         ]
 
     def __str__(self):
-        return f"Alert {self.route} @ {self.alert_for:%Y-%m-%d %H:%M} → {self.user.username}"
+        state = self.sent_at.strftime("%Y-%m-%d %H:%M") if self.sent_at else "pending"
+        return f"Alert {self.route} @ {self.alert_for:%Y-%m-%d %H:%M} → {self.user.username} ({state})"
 
 
 class AnalyticsEvent(models.Model):

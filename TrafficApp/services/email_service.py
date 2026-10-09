@@ -1,35 +1,10 @@
 import os
-import requests
 from sendgrid import SendGridAPIClient
 from sendgrid.helpers.mail import Mail
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-def _lookup_location(ip):
-    """
-    Best-effort, human-readable location for an IP (e.g. "Buea, Cameroon").
-
-    Uses the free, keyless ip-api.com endpoint. Never raises: any failure,
-    timeout, or private/loopback IP just yields "Unknown location" so the
-    caller (a non-critical alert email) is unaffected.
-    """
-    if not ip or ip.startswith(("127.", "10.", "192.168.", "172.")):
-        return "Unknown location"
-    try:
-        resp = requests.get(
-            f"http://ip-api.com/json/{ip}?fields=status,city,regionName,country",
-            timeout=4,
-        )
-        data = resp.json()
-        if data.get("status") == "success":
-            parts = [data.get("city"), data.get("regionName"), data.get("country")]
-            located = ", ".join(p for p in parts if p)
-            return located or "Unknown location"
-    except Exception as e:
-        logger.warning("IP geolocation failed for %s: %s", ip, e)
-    return "Unknown location"
 
 def _send_email_safe(subject, message, recipient_list):
     try:
@@ -45,14 +20,14 @@ def _send_email_safe(subject, message, recipient_list):
         response = sg.send(email)
 
         if response.status_code in [200, 202]:
-            logger.info(f"Email sent successfully to {recipient_list}")
+            logger.info("Email sent successfully")
             return True
         else:
             logger.error(f"SendGrid failed: {response.status_code}")
             return False
 
-    except Exception as e:
-        logger.error(f"Email error: {str(e)}")
+    except Exception as exc:
+        logger.error("Email delivery failed (%s)", type(exc).__name__)
         return False
 
 def send_verification_email(user_email, username, otp):
@@ -86,16 +61,14 @@ def send_new_device_login_alert(user_email, username, ip, user_agent, when):
     Notify a user that their account was just signed in to from a new device.
 
     Sent AFTER a successful new-device verification so the real owner has a
-    chance to react if it wasn't them. Resolves the IP to a city/country here
-    (off the request path) so login latency is never affected.
+    chance to react if it wasn't them. No third-party IP geolocation lookup is
+    performed; the IP address is included in this security email only.
     """
-    location = _lookup_location(ip)
     subject = "New sign-in to your Traffik account"
     message = (
         f"Hi {username},\n\n"
         f"Your Traffik account was just signed in to from a new device:\n\n"
         f"  When:     {when}\n"
-        f"  Location: {location}\n"
         f"  IP:       {ip or 'unknown'}\n"
         f"  Device:   {user_agent or 'unknown'}\n\n"
         f"If this was you, no action is needed.\n\n"

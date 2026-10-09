@@ -1,12 +1,13 @@
 import joblib
-import os
 import logging
+import os
 from functools import lru_cache
 
 import pandas as pd
 from django.conf import settings
 
 from traffic_context import ml_features as mlf
+from .artifact_manifest import resolve_artifact_paths
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +22,15 @@ def _load_artifacts():
     """
     Load the LightGBM model + its feature schema exactly once per process.
 
-    The schema (``feature_schema.json``, written by ``manage.py train_model``)
-    pins the exact ordered feature columns and route vocabulary, so serving
-    builds the identical feature space the model was trained on. A retrained
-    model requires a process restart (or ``_load_artifacts.cache_clear()``).
+    The schema in the manifest-selected release pins the ordered feature columns
+    and route vocabulary. Legacy root artifacts are used only when no manifest
+    exists. A retrained model requires a process restart (or cache clearing).
     """
-    model_path = os.path.join(settings.BASE_DIR, "traffic_model.pkl")
-    schema_path = os.path.join(settings.BASE_DIR, "feature_schema.json")
+    try:
+        model_path, schema_path, release_version = resolve_artifact_paths(settings.BASE_DIR)
+    except Exception as exc:
+        logger.error("Invalid model artifact manifest (%s)", type(exc).__name__)
+        return None, None
 
     model = None
     if os.path.exists(model_path):
@@ -40,8 +43,11 @@ def _load_artifacts():
     if os.path.exists(schema_path):
         try:
             schema = mlf.load_schema(schema_path)
+            if release_version and schema.get("version") != release_version:
+                raise ValueError("Schema version does not match the active release")
         except Exception as exc:
             logger.error("Error loading feature schema: %s", exc)
+            schema = None
 
     return model, schema
 

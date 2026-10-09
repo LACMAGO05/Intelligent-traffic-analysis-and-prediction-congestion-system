@@ -44,4 +44,6 @@ google_traffic_data_v2.csv
 *.pkl
 # ...but the deployed model MUST ship, so keep it tracked (retrains too).
 !traffic_model.pkl
+# Versioned promoted releases are also runtime artifacts and must be committed.
+!ml_artifacts/releases/*/traffic_model.pkl
 temp_audio/
