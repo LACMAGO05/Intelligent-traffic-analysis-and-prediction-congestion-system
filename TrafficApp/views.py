@@ -37,6 +37,7 @@ import csv
 import json
 import hmac
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_POST
 from django.utils import timezone
 import datetime
 
@@ -141,6 +142,7 @@ def healthz(request):
         return JsonResponse({"status": "error"}, status=503)
 
 
+@ratelimit(key='ip', rate='5/h', method='POST', block=True)
 def contact_view(request):
     if request.method == 'POST':
         form = ContactForm(request.POST)
@@ -163,8 +165,8 @@ def contact_view(request):
                     return JsonResponse({"status": "success", "message": "Your message has been sent successfully!"})
                 else:
                     return JsonResponse({"status": "error", "message": "Failed to send email. Please try again later."}, status=500)
-            except Exception:
-                logger.exception("Contact email sending failed")
+            except Exception as exc:
+                logger.error("Contact email delivery failed (%s)", type(exc).__name__)
                 return JsonResponse({"status": "error", "message": "Failed to send email. Please try again later."}, status=500)
         else:
             return JsonResponse({"status": "error", "errors": form.errors}, status=400)
@@ -248,7 +250,9 @@ def verify_device(request):
         return redirect('signin')
 
     entered = request.POST.get('otp', '').strip()
-    if hashlib.sha256(entered.encode()).hexdigest() != data['code_hash']:
+    if not secrets.compare_digest(
+        hashlib.sha256(entered.encode()).hexdigest(), data['code_hash']
+    ):
         data['attempts'] = attempts + 1
         request.session['pending_login'] = data
         request.session.modified = True
@@ -426,7 +430,7 @@ def verify_otp(request):
 
     entered_otp = request.POST.get('otp', '').strip()
     entered_hash = hashlib.sha256(entered_otp.encode()).hexdigest()
-    if entered_hash != data['otp_hash']:
+    if not secrets.compare_digest(entered_hash, data['otp_hash']):
         data['otp_attempts'] = attempts + 1
         request.session['signup_data'] = data
         request.session.modified = True
@@ -456,6 +460,7 @@ def verify_otp(request):
     return redirect('signin')
 
 
+@require_POST
 def logout_view(request):
     # Log the user out of EVERY device, not just this one. Django's default
     # logout(request) only deletes the current device's session row; here we
@@ -620,19 +625,11 @@ def predict_view(request):
             response_data["thread_id"] = str(thread.id)
             response_data["thread_title"] = thread.title
 
-            logger.debug(
-                "Prediction %s -> %s: travel_time=%s normal=%s speed=%s distance=%s congestion=%s",
-                origin, destination,
-                response_data.get('travel_time'), response_data.get('normal_duration'),
-                response_data.get('speed'), response_data.get('distance'),
-                response_data.get('congestion'),
-            )
-
             return JsonResponse(response_data)
 
-        except Exception:
-            # Log the full traceback server-side; never leak internals to the client.
-            logger.exception("Prediction failed for %s -> %s", origin, destination)
+        except Exception as exc:
+            # Do not put a user's route or provider request details into logs.
+            logger.error("Prediction failed (%s)", type(exc).__name__)
             return JsonResponse(
                 {"error": "We couldn't process your prediction right now. Please try again."},
                 status=500,
@@ -928,6 +925,7 @@ def _parse_hhmm(value):
         return None
 
 
+@require_POST
 @csrf_exempt
 def run_scheduled_tasks(request):
     """
@@ -938,8 +936,8 @@ def run_scheduled_tasks(request):
     it's a machine-to-machine call with no session.
     """
     secret = settings.CRON_SECRET
-    provided = request.headers.get("X-Cron-Secret") or request.GET.get("token", "")
-    if not secret or not hmac.compare_digest(provided, secret):
+    provided = request.headers.get("X-Cron-Secret", "")
+    if not secret or not hmac.compare_digest(provided.encode("utf-8"), secret.encode("utf-8")):
         return JsonResponse({"error": "Forbidden"}, status=403)
 
     try:

@@ -21,18 +21,18 @@ python manage.py train_model --csv traffic_training_export.csv
 python manage.py train_model --csv traffic_training_export.csv --promote
 ```
 
-The command writes candidate artifacts under `ml_artifacts/candidate/`. With `--promote`, if the configured gate passes, it backs up an existing model, then writes the live model and schema at the repository root and regenerates `ml_artifacts/MODEL_CARD.md`. A gate pass without `--promote` does not replace the live model.
+The command writes candidate artifacts under `ml_artifacts/candidate/`. Each run records the SHA-256 of the exact input CSV, cleaned date range, and original High-label count in the candidate schema. That fingerprint identifies the bytes used for the run; it does not establish where the dataset originated. With `--promote`, if the configured gate passes, the command writes a complete versioned model/schema pair under `ml_artifacts/releases/<version>/` and atomically switches `ml_artifacts/current.json` to that release. The prior release remains available for rollback. It then regenerates `ml_artifacts/MODEL_CARD.md` from the run metadata. A gate pass without `--promote` does not replace the live model.
 
 ## Artifacts and serving
 
-Serving expects these files at the repository root:
+Serving first reads the release named by `ml_artifacts/current.json`:
 
-- `traffic_model.pkl` — serialized LightGBM Booster.
-- `feature_schema.json` — version, model type, target labels, decision threshold, ordered feature columns, route vocabulary, and training metrics.
+- `ml_artifacts/releases/<version>/traffic_model.pkl` — serialized LightGBM Booster.
+- `ml_artifacts/releases/<version>/feature_schema.json` — version, model type, target labels, decision threshold, ordered feature columns, route vocabulary, and training metrics.
 
-`TrafficApp.services.model_service.ModelService` loads the artifacts once per process. It builds features using the saved schema and maps the model’s binary output to Low or Medium. A missing or invalid artifact produces a model error; the hybrid service then falls back to Google’s congestion class. The model is cached, so replacing it requires restarting the process (or explicitly clearing the loader cache).
+The manifest pointer is replaced atomically only after both release files are complete. The loader verifies that the schema version matches the manifest. If no manifest exists, it falls back to the checked-in root `traffic_model.pkl` and `feature_schema.json` for backward compatibility. `TrafficApp.services.model_service.ModelService` loads the artifacts once per process. It builds features using the saved schema and maps the model’s binary output to Low or Medium. A missing or invalid artifact produces a model error; the hybrid service then falls back to Google’s congestion class. The model is cached, so replacing it requires restarting the process (or explicitly clearing the loader cache).
 
-The checked-in schema identifies version `20260608-024821` and carries the metrics summarized in [MODEL_CARD.md](../ml_artifacts/MODEL_CARD.md). The older `docs/project_analysis/PHASE5_CHANGELOG.md` reports results from a different run; those figures should not be represented as metrics for this schema version. Repository presence of the artifacts does not by itself confirm that a deployed service receives both files.
+The checked-in legacy root schema identifies version `20260608-024821` and carries the metrics summarized in [MODEL_CARD.md](../ml_artifacts/MODEL_CARD.md). The older `docs/project_analysis/PHASE5_CHANGELOG.md` reports results from a different run; those figures should not be represented as metrics for this schema version. Repository presence of the artifacts does not by itself confirm that a deployed service receives both files.
 
 ## Limits and interpretation
 

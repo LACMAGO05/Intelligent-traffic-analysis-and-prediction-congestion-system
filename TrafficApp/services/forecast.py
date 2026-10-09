@@ -65,8 +65,8 @@ def forecast_gridlock(origin, destination, target_dt):
         pred = HybridPredictionService().get_hybrid_prediction(
             origin, destination, int(target_dt.timestamp())
         )
-    except Exception:
-        logger.exception("Live confirm failed for %s", route_str)
+    except Exception as exc:
+        logger.error("Live forecast confirmation failed (%s)", type(exc).__name__)
         return None
 
     if "error" in pred:

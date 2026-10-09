@@ -1,10 +1,10 @@
-import random
+import secrets
 from django.utils import timezone
 import datetime
 from traffic_context.directions_client import DirectionsClient, DirectionsError, parse_leg_metrics
 
 def generate_otp():
-    return str(random.randint(100000, 999999))
+    return str(secrets.randbelow(900000) + 100000)
 
 def get_realtime_traffic(origin, destination, departure_time="now"):
     """

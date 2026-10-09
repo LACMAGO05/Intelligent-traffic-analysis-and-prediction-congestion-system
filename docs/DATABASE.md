@@ -33,7 +33,7 @@ The collector writes ORM records to `TrafficRecord`; prediction requests write t
 python manage.py export_training_data
 ```
 
-The command writes `traffic_training_export.csv` in the project root by default. Use `--output PATH` to choose another destination. The export includes collected route metrics and context fields; it does not export prediction logs. The training command has its own default input path, so pass the export explicitly when needed (see [ML_PIPELINE.md](ML_PIPELINE.md)).
+The command writes `traffic_training_export.csv` in the project root by default. Use `--output PATH` to choose another destination. The export includes collected route metrics and context fields; it does not export prediction logs. The training command has its own default input path, so pass the export explicitly when needed (see [ML_PIPELINE.md](ML_PIPELINE.md)). Promoted model releases are stored as versioned model/schema pairs with an atomic manifest pointer; the input fingerprint and cleaned date/class summaries are recorded for each new run.
 
 The `purge_old_data` command removes old `ChatThread` records (and their related messages through cascade) and old `PredictionLog` records. It does not purge `TrafficRecord` or other models. Review its `--dry-run` output and retention requirements before scheduling deletion.
 

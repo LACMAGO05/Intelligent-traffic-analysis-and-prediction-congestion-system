@@ -6,13 +6,14 @@ Reproducible, gated training for the congestion model.
 Pipeline: clean -> binary target (Congested vs Free-flow) -> all-route one-hot
 -> chronological split -> class-weighted LightGBM -> per-class metrics + gate.
 
-The new model is only promoted to the live artifact (``traffic_model.pkl`` +
-``feature_schema.json``) when it passes the gate (minority-class recall and
-ROC-AUC thresholds); the previous artifact is backed up first. Otherwise it is
-written to ``ml_artifacts/candidate/`` for inspection.
+The new model is only promoted when it passes the gate (minority-class recall
+and ROC-AUC thresholds). Promotion publishes a complete versioned release and
+atomically switches the active manifest; prior releases remain available for
+rollback. Otherwise the candidate is kept for inspection.
 """
 import os
-import shutil
+import hashlib
+import tempfile
 from datetime import datetime, timezone
 
 import numpy as np
@@ -21,6 +22,20 @@ from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from traffic_context import ml_features as mlf
+from TrafficApp.services.artifact_manifest import promote_artifact_release
+
+
+def _read_training_csv(path):
+    """Parse and fingerprint one captured byte stream with bounded memory use."""
+    digest = hashlib.sha256()
+    with tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b") as captured:
+        with open(path, "rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+                captured.write(chunk)
+        captured.seek(0)
+        frame = pd.read_csv(captured, on_bad_lines="skip", engine="python")
+    return frame, digest.hexdigest()
 
 
 class Command(BaseCommand):
@@ -44,12 +59,11 @@ class Command(BaseCommand):
 
         artifacts_dir = settings.BASE_DIR / "ml_artifacts"
         candidate_dir = artifacts_dir / "candidate"
-        backup_dir = artifacts_dir / "backup"
-        for d in (artifacts_dir, candidate_dir, backup_dir):
+        for d in (artifacts_dir, candidate_dir):
             os.makedirs(d, exist_ok=True)
 
         # ── load + clean ──────────────────────────────────────────────
-        raw = pd.read_csv(opts["csv"], on_bad_lines="skip", engine="python")
+        raw, input_sha256 = _read_training_csv(opts["csv"])
         df = mlf.clean_training_frame(raw)
         df["_ts"] = pd.to_datetime(df["timestamp"], errors="coerce")
         df = df.dropna(subset=["_ts"]).sort_values("_ts")
@@ -147,6 +161,11 @@ class Command(BaseCommand):
 
         metrics = {
             "trained_at": datetime.now(timezone.utc).isoformat(),
+            "input_file": os.path.basename(opts["csv"]),
+            "input_sha256": input_sha256,
+            "input_date_start": df["_ts"].min().isoformat(),
+            "input_date_end": df["_ts"].max().isoformat(),
+            "original_high_rows": int(df["congestion"].eq("High").sum()),
             "rows_clean": int(len(df)), "n_features": int(X.shape[1]),
             "free_flow": int((y == 0).sum()), "congested": int((y == 1).sum()),
             "roc_auc": auc, "pr_auc": pr_auc,
@@ -159,7 +178,7 @@ class Command(BaseCommand):
 
         # ── gate ──────────────────────────────────────────────────────
         passed = (not np.isnan(auc)) and auc >= opts["min_auc"] and congested_recall >= opts["min_recall"]
-        version = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        version = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
 
         import joblib
         cand_model = candidate_dir / "traffic_model.pkl"
@@ -179,26 +198,29 @@ class Command(BaseCommand):
             self.stdout.write("Re-run with --promote to overwrite the live model.")
             return
 
-        live_model = settings.BASE_DIR / "traffic_model.pkl"
-        live_schema = settings.BASE_DIR / "feature_schema.json"
-        if os.path.exists(live_model):
-            shutil.copy2(live_model, backup_dir / f"traffic_model.{version}.pkl")
-        joblib.dump(model.booster_, live_model)
-        mlf.save_schema(live_schema, route_vocab, threshold=threshold, metrics=metrics, version=version)
+        release_dir = promote_artifact_release(
+            settings.BASE_DIR, cand_model, cand_schema, version
+        )
         self._write_model_card(artifacts_dir / "MODEL_CARD.md", metrics, route_vocab, version)
-        self.stdout.write(self.style.SUCCESS(f"Promoted model {version} -> {live_model} (+ feature_schema.json)."))
+        self.stdout.write(self.style.SUCCESS(f"Promoted model {version} -> {release_dir}."))
 
     def _write_model_card(self, path, metrics, route_vocab, version):
         with open(path, "w") as fh:
             fh.write(
                 f"# Model Card — Traffic Congestion Classifier\n\n"
                 f"- **Version:** {version}\n"
-                f"- **Algorithm:** LightGBM (binary classification) — canonical artifact `traffic_model.pkl`\n"
+                f"- **Algorithm:** LightGBM (binary classification) — active release selected by `ml_artifacts/current.json`\n"
                 f"- **Target:** Congested (orig. Medium/High) vs Free-flow (orig. Low)\n"
                 f"- **Trained:** {metrics['trained_at']}\n\n"
                 f"## Data\n"
                 f"- Clean rows: {metrics['rows_clean']} | Free-flow: {metrics['free_flow']} | Congested: {metrics['congested']}\n"
                 f"- Routes encoded: {len(route_vocab)} | Features: {metrics['n_features']}\n\n"
+                f"## Training input\n"
+                f"- File: `{metrics['input_file']}`\n"
+                f"- SHA-256: `{metrics['input_sha256']}`\n"
+                f"- Cleaned timestamp range: {metrics['input_date_start']} to {metrics['input_date_end']}\n"
+                f"- Original `High` rows: {metrics['original_high_rows']}\n"
+                f"- The fingerprint identifies the input bytes used for this run; it does not independently establish the dataset's upstream provenance.\n\n"
                 f"## Holdout metrics (chronological 20%)\n"
                 f"- PR-AUC (honest headline): {metrics.get('pr_auc', float('nan')):.3f} "
                 f"vs route×hour baseline {metrics.get('baseline_pr_auc', float('nan')):.3f}\n"
@@ -207,7 +229,6 @@ class Command(BaseCommand):
                 f"- Congested precision/recall/F1: "
                 f"{metrics['congested_precision']:.3f} / {metrics['congested_recall']:.3f} / {metrics['congested_f1']:.3f}\n\n"
                 f"## Known limitations\n"
-                f"- Collected over a ~15-day window; only 8 original 'High' samples (hence binary framing).\n"
                 f"- Route one-hots are sparse; unseen routes serve as all-zero (model relies on time/weather/context).\n"
                 f"- 'High' congestion in the UI is surfaced by Google's live duration_in_traffic, not this model.\n"
             )

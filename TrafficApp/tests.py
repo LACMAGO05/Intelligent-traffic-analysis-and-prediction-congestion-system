@@ -1,17 +1,20 @@
 """
 Test suite covering the Phase 1 critical-security fixes.
 
-Run with a throwaway SQLite database so it does not require the production
-Postgres instance, e.g.:
-
-    DATABASE_URL="sqlite:///test_db.sqlite3" python manage.py test
+Run against a disposable PostgreSQL database. The outbox claim tests use
+``select_for_update(skip_locked=True)``, which SQLite does not implement; the
+repository CI workflow provides a disposable PostgreSQL service.
 """
 import os
+import hashlib
+from pathlib import Path
+import json
 import tempfile
+import datetime
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase, Client, override_settings
+from django.test import TestCase, TransactionTestCase, Client, override_settings, skipUnlessDBFeature
 from django.urls import reverse
 from django.conf import settings
 from django.core.management import call_command
@@ -21,7 +24,10 @@ from django.contrib.auth.models import User, Group
 
 from TrafficApp.utils import generate_otp
 from TrafficApp.views import sanitize_location
-from TrafficApp.models import ChatThread, PredictionLog, TrafficRecord
+from TrafficApp.models import (
+    ChatThread, PredictionLog, TrafficAlert, TrafficRecord, RouteWatch, TaskOutbox,
+)
+from TrafficApp.forms import ContactForm
 from traffic_context.congestion import CongestionIntelligence
 from traffic_context.pressure_score import PressureScoreCalculator
 from traffic_collector.record_store import TrafficRecordStore
@@ -129,10 +135,11 @@ class SignupOtpFlowTests(TestCase):
         resp = self.client.get(reverse("otp"))
         self.assertRedirects(resp, reverse("signup"), fetch_redirect_response=False)
 
+    @patch("TrafficApp.views.enqueue")
     @patch("TrafficApp.views.send_welcome_email", return_value=True)
     @patch("TrafficApp.views.generate_otp", return_value="123456")
     @patch("TrafficApp.views.send_verification_email", return_value=True)
-    def test_full_signup_then_verify_creates_user_with_role(self, m_send, m_otp, m_welcome):
+    def test_full_signup_then_verify_creates_user_with_role(self, m_send, m_otp, m_welcome, m_enqueue):
         self.client.post(reverse("signup"), {
             "username": "dave", "email": "dave@example.com",
             "password": "longenoughpassword123", "consent": "yes",
@@ -141,6 +148,9 @@ class SignupOtpFlowTests(TestCase):
         self.assertRedirects(resp, reverse("signin"), fetch_redirect_response=False)
         user = User.objects.get(username="dave")
         self.assertTrue(user.groups.filter(name="Commuter").exists())
+        m_enqueue.assert_called_once_with(
+            "send_welcome_email", user_email=user.email, username=user.username,
+        )
         # password was stored as a hash and must authenticate
         self.assertTrue(self.client.login(username="dave", password="longenoughpassword123"))
 
@@ -202,6 +212,63 @@ def _sample_record(timestamp="2026-05-30 08:00:00", route="Molyko to Mile 17"):
         "event_indicator": 1, "event_type": "Market Activity", "event_severity": "High",
         "traffic_pressure_score": 85,
     }
+
+
+@override_settings(**TEST_OVERRIDES)
+class VerificationExpiryAndAttemptTests(TestCase):
+    def _set_signup_session(self, *, age_seconds=0, attempts=0):
+        session = self.client.session
+        session["signup_data"] = {
+            "username": "pending-user",
+            "email": "pending@example.com",
+            "password_hash": "unused",
+            "otp_hash": hashlib.sha256(b"123456").hexdigest(),
+            "otp_created_at": (timezone.now() - timedelta(seconds=age_seconds)).isoformat(),
+            "otp_attempts": attempts,
+        }
+        session.save()
+
+    def test_signup_otp_expiry_discards_pending_signup(self):
+        self._set_signup_session(age_seconds=601)
+        response = self.client.post(reverse("otp"), {"otp": "123456"})
+        self.assertRedirects(response, reverse("signup"), fetch_redirect_response=False)
+        self.assertNotIn("signup_data", self.client.session)
+
+    def test_signup_otp_exhausted_attempts_discards_pending_signup(self):
+        self._set_signup_session(attempts=5)
+        response = self.client.post(reverse("otp"), {"otp": "123456"})
+        self.assertRedirects(response, reverse("signup"), fetch_redirect_response=False)
+        self.assertNotIn("signup_data", self.client.session)
+
+    def test_device_verification_exhausted_attempts_discards_pending_login(self):
+        session = self.client.session
+        session["pending_login"] = {
+            "user_id": 1,
+            "created_at": timezone.now().isoformat(),
+            "code_hash": hashlib.sha256(b"123456").hexdigest(),
+            "attempts": 5,
+        }
+        session.save()
+        response = self.client.post(reverse("verify_device"), {"otp": "000000"})
+        self.assertRedirects(response, reverse("signin"), fetch_redirect_response=False)
+        self.assertNotIn("pending_login", self.client.session)
+
+    def test_device_verification_locks_after_five_wrong_codes(self):
+        session = self.client.session
+        session["pending_login"] = {
+            "user_id": 1,
+            "created_at": timezone.now().isoformat(),
+            "code_hash": hashlib.sha256(b"123456").hexdigest(),
+            "attempts": 0,
+        }
+        session.save()
+        for _ in range(5):
+            response = self.client.post(reverse("verify_device"), {"otp": "000000"})
+            self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.client.session["pending_login"]["attempts"], 5)
+        response = self.client.post(reverse("verify_device"), {"otp": "123456"})
+        self.assertRedirects(response, reverse("signin"), fetch_redirect_response=False)
+        self.assertNotIn("pending_login", self.client.session)
 
 
 class TrafficRecordStoreTests(TestCase):
@@ -523,3 +590,413 @@ class BackgroundTaskTests(TestCase):
             raise ValueError("nope")
         # Should not propagate.
         self.assertIsNone(run_async(boom))
+
+
+@override_settings(**{**TEST_OVERRIDES, "RATELIMIT_ENABLE": True})
+class ContactAbuseTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.data = {
+            "name": "TrafficPro user",
+            "email": "sender@example.com",
+            "subject": "question",
+            "message": "Please contact me.",
+        }
+
+    def test_contact_message_has_a_server_side_length_limit(self):
+        self.data["message"] = "x" * 5001
+        self.assertFalse(ContactForm(data=self.data).is_valid())
+
+    @patch("TrafficApp.views.send_contact_email", return_value=True)
+    def test_contact_submission_is_rate_limited(self, mock_send):
+        client = Client()
+        responses = [
+            client.post(reverse("contact"), self.data)
+            for _ in range(6)
+        ]
+        self.assertEqual([response.status_code for response in responses[:5]], [200] * 5)
+        self.assertEqual(responses[5].status_code, 403)
+        self.assertEqual(mock_send.call_count, 5)
+
+
+@override_settings(**TEST_OVERRIDES)
+class ContactFailureLoggingTests(TestCase):
+    @patch("TrafficApp.views.send_contact_email", side_effect=RuntimeError("private message and recipient"))
+    def test_email_failure_logs_type_without_exception_contents(self, mock_send):
+        with self.assertLogs("TrafficApp.views", level="ERROR") as captured:
+            response = self.client.post(reverse("contact"), {
+                "name": "Contact User",
+                "email": "person@example.com",
+                "subject": "question",
+                "message": "private message and recipient",
+            })
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("RuntimeError", "\n".join(captured.output))
+        self.assertNotIn("private message and recipient", "\n".join(captured.output))
+        mock_send.assert_called_once()
+
+
+@override_settings(**{**TEST_OVERRIDES, "CRON_SECRET": "test-only-cron-secret"})
+class ScheduledTaskEndpointTests(TestCase):
+    def test_get_with_query_secret_is_rejected_without_running_tasks(self):
+        with patch("TrafficApp.services.alert_job.run_gridlock_alerts") as alerts, \
+             patch("TrafficApp.services.outbox.process_outbox") as outbox:
+            response = self.client.get(
+                reverse("run_tasks"), {"token": "test-only-cron-secret"}
+            )
+        self.assertEqual(response.status_code, 405)
+        alerts.assert_not_called()
+        outbox.assert_not_called()
+
+    @patch("TrafficApp.services.outbox.process_outbox", return_value=(2, 0))
+    @patch("TrafficApp.services.alert_job.run_gridlock_alerts", return_value=1)
+    def test_valid_post_header_runs_scheduled_tasks(self, alerts, outbox):
+        response = self.client.post(
+            reverse("run_tasks"),
+            HTTP_X_CRON_SECRET="test-only-cron-secret",
+        )
+        self.assertEqual(response.status_code, 200)
+        alerts.assert_called_once_with()
+        outbox.assert_called_once_with()
+
+    def test_query_secret_is_not_accepted_on_post(self):
+        response = self.client.post(
+            reverse("run_tasks"), {"token": "test-only-cron-secret"}
+        )
+        self.assertEqual(response.status_code, 403)
+
+
+@override_settings(**TEST_OVERRIDES)
+class LogoutMethodTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="logout-user", password="longenoughpassword123"
+        )
+        self.client.force_login(self.user)
+
+    def test_get_does_not_log_user_out(self):
+        response = self.client.get(reverse("logout"))
+        self.assertEqual(response.status_code, 405)
+        self.assertIn("_auth_user_id", self.client.session)
+
+    def test_post_logs_user_out(self):
+        response = self.client.post(reverse("logout"))
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+
+@override_settings(**TEST_OVERRIDES)
+class OutboxClaimTests(TestCase):
+    def test_pending_task_is_claimed_before_execution_and_completed(self):
+        from TrafficApp.services.outbox import process_outbox, TASK_REGISTRY
+
+        row = TaskOutbox.objects.create(task="test_claim")
+
+        def verify_claim(**_payload):
+            row.refresh_from_db()
+            self.assertEqual(row.status, "processing")
+            self.assertIsNotNone(row.locked_at)
+            return True
+
+        with patch.dict(TASK_REGISTRY, {"test_claim": verify_claim}):
+            self.assertEqual(process_outbox(), (1, 0))
+
+        row.refresh_from_db()
+        self.assertEqual(row.status, TaskOutbox.STATUS_DONE)
+        self.assertIsNone(row.locked_at)
+        self.assertEqual(row.attempts, 1)
+
+    def test_expired_claim_is_recovered(self):
+        from TrafficApp.services.outbox import process_outbox, TASK_REGISTRY
+
+        row = TaskOutbox.objects.create(
+            task="test_recovery",
+            status=TaskOutbox.STATUS_PROCESSING,
+            attempts=1,
+            locked_at=timezone.now() - timedelta(minutes=16),
+        )
+        with patch.dict(TASK_REGISTRY, {"test_recovery": lambda **_payload: True}):
+            self.assertEqual(process_outbox(), (1, 0))
+        row.refresh_from_db()
+        self.assertEqual(row.status, TaskOutbox.STATUS_DONE)
+        self.assertEqual(row.attempts, 2)
+
+    def test_expired_lease_at_max_attempts_is_failed_without_delivery(self):
+        from TrafficApp.services.outbox import process_outbox, TASK_REGISTRY
+
+        row = TaskOutbox.objects.create(
+            task="test_max_attempts",
+            status=TaskOutbox.STATUS_PROCESSING,
+            attempts=5,
+            locked_at=timezone.now() - timedelta(minutes=16),
+        )
+        with patch.dict(TASK_REGISTRY, {"test_max_attempts": lambda **_payload: self.fail("must not run")}):
+            self.assertEqual(process_outbox(), (0, 1))
+        row.refresh_from_db()
+        self.assertEqual(row.status, TaskOutbox.STATUS_FAILED)
+        self.assertIsNone(row.locked_at)
+
+    def test_delivery_failure_on_final_attempt_marks_row_failed(self):
+        from TrafficApp.services.outbox import process_outbox, TASK_REGISTRY
+
+        row = TaskOutbox.objects.create(task="test_final_failure", attempts=4)
+        with patch.dict(TASK_REGISTRY, {"test_final_failure": lambda **_payload: False}):
+            self.assertEqual(process_outbox(), (0, 1))
+        row.refresh_from_db()
+        self.assertEqual(row.status, TaskOutbox.STATUS_FAILED)
+        self.assertEqual(row.attempts, 5)
+        self.assertIsNone(row.locked_at)
+
+    def test_unexpired_lease_is_not_reclaimed(self):
+        from TrafficApp.services.outbox import process_outbox, TASK_REGISTRY
+
+        row = TaskOutbox.objects.create(
+            task="test_active_lease",
+            status=TaskOutbox.STATUS_PROCESSING,
+            attempts=1,
+            locked_at=timezone.now(),
+        )
+        with patch.dict(TASK_REGISTRY, {"test_active_lease": lambda **_payload: self.fail("must not run")}):
+            self.assertEqual(process_outbox(), (0, 0))
+        row.refresh_from_db()
+        self.assertEqual(row.status, TaskOutbox.STATUS_PROCESSING)
+
+    def test_failure_does_not_persist_exception_text(self):
+        from TrafficApp.services.outbox import process_outbox, TASK_REGISTRY
+
+        row = TaskOutbox.objects.create(task="test_failure")
+
+        def fail(**_payload):
+            raise RuntimeError("private recipient data")
+
+        with patch.dict(TASK_REGISTRY, {"test_failure": fail}):
+            self.assertEqual(process_outbox(), (0, 1))
+        row.refresh_from_db()
+        self.assertEqual(row.status, TaskOutbox.STATUS_PENDING)
+        self.assertNotIn("private recipient data", row.last_error)
+
+
+@override_settings(**TEST_OVERRIDES)
+class AlertClaimTests(TestCase):
+    def test_sent_alert_window_is_not_sent_twice(self):
+        from TrafficApp.services.alert_job import run_gridlock_alerts
+
+        user = User.objects.create_user(username="alert-user", password="longenoughpassword123")
+        RouteWatch.objects.create(user=user, origin="Origin", destination="Destination")
+        fixed_now = timezone.make_aware(datetime.datetime(2026, 6, 8, 10, 0))
+        forecast = {
+            "origin": "Origin",
+            "destination": "Destination",
+            "target_dt": fixed_now + timedelta(minutes=60),
+            "congestion": "High",
+            "worst_point": None,
+            "route": "Origin to Destination",
+        }
+        with patch("TrafficApp.services.alert_job.timezone.localtime", return_value=fixed_now), \
+             patch("TrafficApp.services.alert_job.forecast_gridlock", return_value=forecast), \
+             patch("TrafficApp.services.alert_job.notify_user", return_value=1) as notify:
+            self.assertEqual(run_gridlock_alerts(), 1)
+            self.assertEqual(run_gridlock_alerts(), 0)
+        self.assertEqual(notify.call_count, 1)
+        self.assertEqual(TrafficAlert.objects.get().status, TrafficAlert.STATUS_SENT)
+
+
+@skipUnlessDBFeature("has_select_for_update_skip_locked")
+class PostgresOutboxClaimConcurrencyTests(TransactionTestCase):
+    reset_sequences = True
+
+    @staticmethod
+    def _run_outbox_worker(process_outbox, limit):
+        from django.db import connections
+
+        try:
+            return process_outbox(limit)
+        finally:
+            connections.close_all()
+
+    def test_worker_skips_a_pending_row_locked_by_another_transaction(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from django.db import connection, transaction
+        from TrafficApp.services.outbox import process_outbox, TASK_REGISTRY
+
+        row = TaskOutbox.objects.create(task="locked_claim")
+        with patch.dict(TASK_REGISTRY, {"locked_claim": lambda **_payload: self.fail("locked row must be skipped")}):
+            with transaction.atomic():
+                TaskOutbox.objects.select_for_update().get(pk=row.pk)
+                with ThreadPoolExecutor(max_workers=1) as workers:
+                    result = workers.submit(self._run_outbox_worker, process_outbox, 1).result(timeout=5)
+                self.assertEqual(result, (0, 0))
+        row.refresh_from_db()
+        self.assertEqual(row.status, TaskOutbox.STATUS_PENDING)
+
+    def test_two_workers_do_not_run_the_same_live_claim(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Event, Lock
+        from TrafficApp.services.outbox import process_outbox, TASK_REGISTRY
+
+        row = TaskOutbox.objects.create(task="concurrency_claim")
+        started = Event()
+        release = Event()
+        calls = []
+        calls_lock = Lock()
+
+        def blocking_task(**_payload):
+            with calls_lock:
+                calls.append(1)
+            started.set()
+            if not release.wait(timeout=10):
+                raise RuntimeError("test worker release timed out")
+            return True
+
+        with patch.dict(TASK_REGISTRY, {"concurrency_claim": blocking_task}):
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                first = workers.submit(self._run_outbox_worker, process_outbox, 1)
+                self.assertTrue(started.wait(timeout=5), "first worker did not claim the row")
+                second = workers.submit(self._run_outbox_worker, process_outbox, 1)
+                try:
+                    self.assertEqual(second.result(timeout=5), (0, 0))
+                finally:
+                    release.set()
+                self.assertEqual(first.result(timeout=10), (1, 0))
+
+        row.refresh_from_db()
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(row.status, TaskOutbox.STATUS_DONE)
+
+
+class TrainingInputFingerprintTests(TestCase):
+    def test_fingerprint_is_for_the_bytes_parsed(self):
+        from TrafficApp.management.commands.train_model import _read_training_csv
+
+        contents = b"route,hour,day_of_week,distance_km,congestion\nA-B,8,1,2.5,Low\n"
+        with tempfile.NamedTemporaryFile() as source:
+            source.write(contents)
+            source.flush()
+            frame, fingerprint = _read_training_csv(source.name)
+        self.assertEqual(fingerprint, hashlib.sha256(contents).hexdigest())
+        self.assertEqual(frame.iloc[0]["route"], "A-B")
+
+
+class ArtifactManifestTests(TestCase):
+    def test_manifest_points_to_complete_matching_release(self):
+        from TrafficApp.services.artifact_manifest import (
+            promote_artifact_release, resolve_artifact_paths,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            candidate_model = os.path.join(tmp, "candidate.pkl")
+            candidate_schema = os.path.join(tmp, "candidate.json")
+            with open(candidate_model, "wb") as model_file:
+                model_file.write(b"model-bytes")
+            from traffic_context.ml_features import feature_columns
+            with open(candidate_schema, "w", encoding="utf-8") as schema_file:
+                json.dump({
+                    "version": "release-1",
+                    "model_type": "lightgbm-binary",
+                    "route_vocab": [],
+                    "feature_columns": feature_columns([]),
+                }, schema_file)
+
+            with patch("TrafficApp.services.artifact_manifest.joblib.load") as load_model:
+                load_model.return_value.feature_name.return_value = feature_columns([])
+                release_dir = promote_artifact_release(
+                    tmp, candidate_model, candidate_schema, "release-1"
+                )
+            model_path, schema_path, version = resolve_artifact_paths(tmp)
+
+            self.assertEqual(version, "release-1")
+            self.assertEqual(model_path.parent, release_dir)
+            self.assertEqual(schema_path.parent, release_dir)
+            self.assertTrue(model_path.is_file())
+            self.assertTrue(schema_path.is_file())
+
+    def test_schema_version_mismatch_is_rejected_before_release_creation(self):
+        from TrafficApp.services.artifact_manifest import promote_artifact_release
+        from traffic_context.ml_features import feature_columns
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = os.path.join(tmp, "candidate.pkl")
+            schema = os.path.join(tmp, "candidate.json")
+            Path(model).write_bytes(b"model")
+            Path(schema).write_text(json.dumps({
+                "version": "old-version",
+                "model_type": "lightgbm-binary",
+                "route_vocab": [],
+                "feature_columns": feature_columns([]),
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "version"):
+                promote_artifact_release(tmp, model, schema, "new-version")
+            self.assertFalse((Path(tmp) / "ml_artifacts").exists())
+
+    def test_manifest_write_failure_preserves_active_release(self):
+        from TrafficApp.services.artifact_manifest import promote_artifact_release, resolve_artifact_paths
+        from traffic_context.ml_features import feature_columns
+        from unittest.mock import patch
+        import TrafficApp.services.artifact_manifest as artifacts
+
+        with tempfile.TemporaryDirectory() as tmp:
+            def create_candidate(version, contents):
+                model = Path(tmp) / f"{version}.pkl"
+                schema = Path(tmp) / f"{version}.json"
+                model.write_bytes(contents)
+                schema.write_text(json.dumps({
+                    "version": version,
+                    "model_type": "lightgbm-binary",
+                    "route_vocab": [],
+                    "feature_columns": feature_columns([]),
+                }), encoding="utf-8")
+                return model, schema
+
+            first_model, first_schema = create_candidate("release-1", b"old-model")
+            with patch("TrafficApp.services.artifact_manifest.joblib.load") as load_model:
+                load_model.return_value.feature_name.return_value = feature_columns([])
+                promote_artifact_release(tmp, first_model, first_schema, "release-1")
+            second_model, second_schema = create_candidate("release-2", b"new-model")
+            original_replace = artifacts.os.replace
+
+            def fail_manifest_replace(source, destination):
+                if Path(destination).name == "current.json":
+                    raise OSError("simulated manifest replacement failure")
+                return original_replace(source, destination)
+
+            with patch("TrafficApp.services.artifact_manifest.joblib.load") as load_model:
+                load_model.return_value.feature_name.return_value = feature_columns([])
+                with patch("TrafficApp.services.artifact_manifest.os.replace", side_effect=fail_manifest_replace):
+                    with self.assertRaisesRegex(OSError, "simulated"):
+                        promote_artifact_release(tmp, second_model, second_schema, "release-2")
+
+            model_path, schema_path, active_version = resolve_artifact_paths(tmp)
+            self.assertEqual(active_version, "release-1")
+            self.assertEqual(model_path.read_bytes(), b"old-model")
+            self.assertEqual(json.loads(schema_path.read_text(encoding="utf-8"))["version"], "release-1")
+
+    def test_model_feature_mismatch_is_rejected_before_release_creation(self):
+        from TrafficApp.services.artifact_manifest import promote_artifact_release
+        from traffic_context.ml_features import feature_columns
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model = Path(tmp) / "candidate.pkl"
+            schema = Path(tmp) / "candidate.json"
+            model.write_bytes(b"serialized-model")
+            schema.write_text(json.dumps({
+                "version": "release-1",
+                "model_type": "lightgbm-binary",
+                "route_vocab": [],
+                "feature_columns": feature_columns([]),
+            }), encoding="utf-8")
+            with patch("TrafficApp.services.artifact_manifest.joblib.load") as load_model:
+                load_model.return_value.feature_name.return_value = ["wrong_feature"]
+                with self.assertRaisesRegex(ValueError, "model features"):
+                    promote_artifact_release(tmp, model, schema, "release-1")
+            self.assertFalse((Path(tmp) / "ml_artifacts").exists())
+
+    def test_manifest_rejects_path_traversal(self):
+        from TrafficApp.services.artifact_manifest import resolve_artifact_paths
+
+        with tempfile.TemporaryDirectory() as tmp:
+            artifact_dir = os.path.join(tmp, "ml_artifacts")
+            os.makedirs(artifact_dir)
+            with open(os.path.join(artifact_dir, "current.json"), "w", encoding="utf-8") as manifest:
+                manifest.write('{"version": "..", "artifact_dir": "releases/.."}')
+            with self.assertRaises(ValueError):
+                resolve_artifact_paths(tmp)

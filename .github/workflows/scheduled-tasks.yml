@@ -13,12 +13,19 @@ on:
     - cron: "*/20 * * * *"   # every 20 minutes (UTC)
   workflow_dispatch: {}        # lets you run it manually from the Actions tab
 
+concurrency:
+  group: scheduled-tasks
+  cancel-in-progress: false
+
 jobs:
   trigger:
     runs-on: ubuntu-latest
     steps:
       - name: Hit the task runner
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
-          curl -fsS -X POST "${{ secrets.APP_URL }}/tasks/run/" \
-            -H "X-Cron-Secret: ${{ secrets.CRON_SECRET }}" \
+          curl -fsS -X POST "${APP_URL}/tasks/run/" \
+            -H "X-Cron-Secret: ${CRON_SECRET}" \
             --max-time 120 --retry 2 --retry-delay 30

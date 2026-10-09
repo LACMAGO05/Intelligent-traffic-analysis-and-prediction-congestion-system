@@ -19,7 +19,7 @@
 | `VAPID_SUBJECT` | Optional for push | VAPID contact subject; settings default to a placeholder address. Set an appropriate contact value for a real deployment. | No, but deployment-specific |
 | `REDIS_URL` | Optional | Enables Django’s Redis cache. Without it, settings use local-memory cache, so cache and rate-limit counters are not shared across processes. | Yes; contains credentials when applicable |
 | `SENTRY_DSN` | Optional | Enables Sentry initialization when set. `send_default_pii` is disabled in the configured SDK initialization. | Treat as sensitive configuration |
-| `CRON_SECRET` | When using `/tasks/run/` | Shared secret checked by the scheduled-task endpoint. The scheduled workflow must send the matching value in its request header. | Yes |
+| `CRON_SECRET` | When using `/tasks/run/` | Shared secret checked on POST requests in the `X-Cron-Secret` header. Query-string tokens are rejected. | Yes |
 | `TASK_ALWAYS_EAGER` | Optional | Defaults to false. Truthy values run the project’s asynchronous task seam synchronously, primarily for tests or local debugging. | No |
 | `RENDER_EXTERNAL_HOSTNAME` | Platform-provided on Render | Render hostname added to `ALLOWED_HOSTS` and `CSRF_TRUSTED_ORIGINS`. Do not set unless the deployment platform requires it. | No |
 

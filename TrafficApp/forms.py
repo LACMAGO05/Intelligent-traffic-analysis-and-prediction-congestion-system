@@ -26,7 +26,7 @@ class ContactForm(forms.Form):
     subject = forms.ChoiceField(choices=SUBJECT_CHOICES, widget=forms.Select(attrs={
         'class': 'w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none bg-white'
     }))
-    message = forms.CharField(widget=forms.Textarea(attrs={
+    message = forms.CharField(max_length=5000, widget=forms.Textarea(attrs={
         'placeholder': 'How can we help you?',
         'rows': 4,
         'class': 'w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-primary focus:border-transparent transition-all outline-none resize-none'

@@ -36,7 +36,7 @@ python manage.py createsuperuser
 python manage.py runserver
 ```
 
-Open the local address printed by Django. The health endpoint is `/healthz/`; it checks the database connection as well as application responsiveness. The project’s current model files are `traffic_model.pkl` and `feature_schema.json` at the repository root. Startup checks warn if either is missing; prediction quality and availability depend on those artifacts and the external Google Maps service.
+Open the local address printed by Django. The health endpoint is `/healthz/`; it checks the database connection as well as application responsiveness. The model loader uses the matching release named by `ml_artifacts/current.json` when present, otherwise it uses the legacy root `traffic_model.pkl` and `feature_schema.json`. Startup checks warn if the selected pair is missing or inconsistent; prediction availability also depends on Google Maps.
 
 ## Optional local processes
 

@@ -21,9 +21,9 @@ Choose deliberately based on the services available in the target environment:
 
 ## 3. Confirm ML artifacts are in the release
 
-- [ ] Confirm `traffic_model.pkl` and `feature_schema.json` are both present in the exact deployed revision at the repository root.
-- [ ] Confirm their version/schema correspondence using the model card and artifact metadata.
-- [ ] Review build and startup logs for missing-artifact warnings. The Blueprint does not train or fetch model artifacts during build.
+- [ ] Confirm `ml_artifacts/current.json` and its matching `ml_artifacts/releases/<version>/` model/schema files are present in the exact deployed revision. For a legacy checkout without a manifest, verify both root artifacts instead.
+- [ ] Confirm the manifest, schema version, and model release correspond using the model card and artifact metadata.
+- [ ] Review build and startup logs for missing or mismatched-artifact warnings. The Blueprint does not train or fetch model artifacts during build.
 
 ## 4. Configure external integrations as needed
 
