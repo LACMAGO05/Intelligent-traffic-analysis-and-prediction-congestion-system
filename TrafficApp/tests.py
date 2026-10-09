@@ -14,13 +14,12 @@ import datetime
 from datetime import timedelta
 from unittest.mock import patch
 
-from django.test import TestCase, TransactionTestCase, Client, override_settings
+from django.test import TestCase, TransactionTestCase, Client, override_settings, skipUnlessDBFeature
 from django.urls import reverse
 from django.conf import settings
 from django.core.management import call_command
 from django.core.cache import cache
 from django.utils import timezone
-from django.test.utils import skipUnlessDBFeature
 from django.contrib.auth.models import User, Group
 
 from TrafficApp.utils import generate_otp
