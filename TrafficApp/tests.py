@@ -805,6 +805,15 @@ class AlertClaimTests(TestCase):
 class PostgresOutboxClaimConcurrencyTests(TransactionTestCase):
     reset_sequences = True
 
+    @staticmethod
+    def _run_outbox_worker(process_outbox, limit):
+        from django.db import connections
+
+        try:
+            return process_outbox(limit)
+        finally:
+            connections.close_all()
+
     def test_worker_skips_a_pending_row_locked_by_another_transaction(self):
         from concurrent.futures import ThreadPoolExecutor
         from django.db import connection, transaction
@@ -815,7 +824,7 @@ class PostgresOutboxClaimConcurrencyTests(TransactionTestCase):
             with transaction.atomic():
                 TaskOutbox.objects.select_for_update().get(pk=row.pk)
                 with ThreadPoolExecutor(max_workers=1) as workers:
-                    result = workers.submit(process_outbox, 1).result(timeout=5)
+                    result = workers.submit(self._run_outbox_worker, process_outbox, 1).result(timeout=5)
                 self.assertEqual(result, (0, 0))
         row.refresh_from_db()
         self.assertEqual(row.status, TaskOutbox.STATUS_PENDING)
@@ -841,9 +850,9 @@ class PostgresOutboxClaimConcurrencyTests(TransactionTestCase):
 
         with patch.dict(TASK_REGISTRY, {"concurrency_claim": blocking_task}):
             with ThreadPoolExecutor(max_workers=2) as workers:
-                first = workers.submit(process_outbox, 1)
+                first = workers.submit(self._run_outbox_worker, process_outbox, 1)
                 self.assertTrue(started.wait(timeout=5), "first worker did not claim the row")
-                second = workers.submit(process_outbox, 1)
+                second = workers.submit(self._run_outbox_worker, process_outbox, 1)
                 try:
                     self.assertEqual(second.result(timeout=5), (0, 0))
                 finally:
